@@ -1,30 +1,46 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Theme colors for "איפה זה?" – Premium dark (navy/slate + blue primary).
+ * RTL-first; use with textAlign: 'right' and writingDirection: 'rtl' where needed.
  */
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const primaryBlue = '#3B82F6';
+const tintColorLight = '#2563eb';
+const tintColorDark = primaryBlue;
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: '#0f172a',
+    background: '#f8fafc',
+    card: '#ffffff',
+    border: '#e2e8f0',
+    muted: '#64748b',
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
+    icon: '#64748b',
+    tabIconDefault: '#64748b',
     tabIconSelected: tintColorLight,
+    primary: primaryBlue,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: '#ffffff',
+    background: '#141824',
+    card: '#1E2436',
+    border: 'transparent',
+    muted: '#94a3b8',
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    icon: '#94a3b8',
+    tabIconDefault: '#64748b',
     tabIconSelected: tintColorDark,
+    primary: primaryBlue,
   },
+};
+
+/** RTL text and layout – use for headings, paragraphs, inputs */
+export const RTL = {
+  text: { textAlign: 'right' as const },
+  input: { textAlign: 'right' as const, writingDirection: 'rtl' as const },
+  row: { flexDirection: 'row' as const },
 };
 
 export const Fonts = Platform.select({
