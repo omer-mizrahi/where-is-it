@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { zodResolver } from "@hookform/resolvers/zod";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { decode } from "base64-arraybuffer";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
@@ -7,12 +8,14 @@ import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import * as Linking from "expo-linking";
 import * as Location from "expo-location";
+import { useColorScheme } from "nativewind";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -33,6 +36,7 @@ import { type ItemStatus } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 const SLATE_800 = "#1e293b";
+const SLATE_700 = "#334155";
 const BLUE_500 = "#3b82f6";
 const BLUE_600 = "#2563eb";
 
@@ -90,8 +94,21 @@ function getWhatsAppShareMessage(shared: {
 
 const SLATE_400 = "#94a3b8";
 
+function formatDateDisplay(d: Date): string {
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+function formatDateToPayload(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
 export default function AddItemScreen() {
   const insets = useSafeAreaInsets();
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
   const params = useLocalSearchParams<{ mode?: string; id?: string }>();
   const editingId = typeof params.id === "string" ? params.id : undefined;
   const isEditing = !!editingId;
@@ -102,6 +119,10 @@ export default function AddItemScreen() {
   const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
   const [locationName, setLocationName] = useState("");
   const [parkingNotes, setParkingNotes] = useState("");
+  const [actionDate, setActionDate] = useState<Date>(() => new Date());
+  const [returnDate, setReturnDate] = useState<Date | null>(null);
+  const [showActionPicker, setShowActionPicker] = useState(false);
+  const [showReturnPicker, setShowReturnPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [lastSavedItem, setLastSavedItem] = useState<{
@@ -118,6 +139,7 @@ export default function AddItemScreen() {
     watch,
     setValue,
     reset,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -136,6 +158,12 @@ export default function AddItemScreen() {
   });
 
   const status = watch("status");
+
+  useEffect(() => {
+    if (status === "loaned" && returnDate === null) {
+      setReturnDate(new Date());
+    }
+  }, [status]);
 
   const navigation = useNavigation();
 
@@ -212,9 +240,22 @@ export default function AddItemScreen() {
             description: (data.description ?? "") as string,
             category: (data.category ?? "") as string,
             status: (data.status as ItemStatus) ?? "owned",
-            borrowerName: (data.borrower_name ?? "") as string,
+            borrowerName:
+              ((data.contact_name ?? data.borrower_name) ?? "") as string,
+            borrowerPhone:
+              ((data.contact_phone ?? data.borrower_phone) ?? "") as string,
+            loanDate: "",
+            expectedReturnDate: "",
             lastSeenWhere: (data.last_seen_notes ?? "") as string,
           });
+          const actionDateRaw = data.action_date ?? data.loan_date;
+          const returnDateRaw = data.return_date ?? data.expected_return_date;
+          setActionDate(
+            actionDateRaw ? new Date(actionDateRaw as string) : new Date()
+          );
+          setReturnDate(
+            returnDateRaw ? new Date(returnDateRaw as string) : null
+          );
           setLocationName((data.location_name ?? "") as string);
           if (data.image_url) {
             setImageUri(data.image_url as string);
@@ -259,14 +300,7 @@ export default function AddItemScreen() {
     }
   };
 
-  const handleSave = async (formData?: FormData) => {
-    if (activeTab === "item") {
-      if (!formData?.name?.trim()) {
-        Alert.alert("שגיאה", "נא להזין שם לפריט");
-        return;
-      }
-    }
-
+  const proceedWithSave = async (formData?: FormData) => {
     setSaving(true);
     try {
       const {
@@ -359,6 +393,9 @@ export default function AddItemScreen() {
         }
       } else {
         const data = formData!;
+        const contactName = data.borrowerName?.trim() || null;
+        const contactPhone = data.borrowerPhone?.trim() || null;
+
         const payload: Record<string, unknown> = {
           name: data.name.trim(),
           description: data.description?.trim() || null,
@@ -366,12 +403,16 @@ export default function AddItemScreen() {
           location_name: locationName.trim() || null,
           status: data.status,
           image_url: finalImageUrl,
+          contact_name: contactName,
+          contact_phone: contactPhone,
+          action_date: formatDateToPayload(actionDate),
+          return_date: returnDate ? formatDateToPayload(returnDate) : null,
         };
         if (!isEditing) {
           payload.user_id = user.id;
         }
-        if (data.status === "loaned" && data.borrowerName?.trim()) {
-          payload.borrower_name = data.borrowerName.trim();
+        if (data.status === "loaned" && contactName) {
+          payload.borrower_name = contactName;
         }
         if (data.status === "lost" && data.lastSeenWhere?.trim()) {
           payload.last_seen_notes = data.lastSeenWhere.trim();
@@ -411,6 +452,8 @@ export default function AddItemScreen() {
           reset(defaultFormValues);
           setImageUri(null);
           setLocationName("");
+          setActionDate(new Date());
+          setReturnDate(null);
           setSuccessModalVisible(true);
         }
       }
@@ -421,6 +464,40 @@ export default function AddItemScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async (formData?: FormData) => {
+    if (activeTab === "item") {
+      if (!formData?.name?.trim()) {
+        Alert.alert("שגיאה", "נא להזין שם לפריט");
+        return;
+      }
+
+      if (formData.status === "loaned") {
+        const contactName = formData.borrowerName?.trim();
+        const contactPhone = formData.borrowerPhone?.trim();
+
+        if (!contactName || !contactPhone || returnDate === null) {
+          Alert.alert(
+            "חסרים פרטי השאלה",
+            "ללא שם, טלפון ותאריך החזרה לא נוכל לשלוח תזכורות. לשמור בכל זאת?",
+            [
+              { text: "ביטול", style: "cancel" },
+              {
+                text: "שמור",
+                style: "default",
+                onPress: () => {
+                  proceedWithSave(formData);
+                },
+              },
+            ]
+          );
+          return;
+        }
+      }
+    }
+
+    await proceedWithSave(formData);
   };
 
   const defaultFormValues = {
@@ -439,6 +516,8 @@ export default function AddItemScreen() {
   const closeSuccessAndGoToItems = () => {
     reset(defaultFormValues);
     setImageUri(null);
+    setActionDate(new Date());
+    setReturnDate(null);
     setSuccessModalVisible(false);
     router.push("/(tabs)/items");
   };
@@ -466,9 +545,12 @@ export default function AddItemScreen() {
     closeSuccessAndGoToItems();
   };
 
+  const mutedColor = isDark ? SLATE_400 : "#64748b";
+
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: Colors.dark.background }}
+      className="flex-1 bg-slate-50 dark:bg-slate-900"
+      style={{ flex: 1 }}
       edges={["top"]}
     >
       <KeyboardAvoidingView
@@ -489,13 +571,14 @@ export default function AddItemScreen() {
         >
         {/* Top Toggle: פריט | חניה (hidden in edit mode) */}
         {!isEditing && (
-        <View style={styles.tabToggle}>
+        <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.tabToggle}>
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === "parking" && styles.tabBtnActive]}
             onPress={() => setActiveTab("parking")}
             activeOpacity={0.9}
           >
             <Text
+              className={activeTab === "parking" ? "text-white" : "text-slate-500 dark:text-slate-400"}
               style={[
                 styles.tabBtnText,
                 activeTab === "parking" && styles.tabBtnTextActive,
@@ -511,6 +594,7 @@ export default function AddItemScreen() {
             activeOpacity={0.9}
           >
             <Text
+              className={activeTab === "item" ? "text-white" : "text-slate-500 dark:text-slate-400"}
               style={[
                 styles.tabBtnText,
                 activeTab === "item" && styles.tabBtnTextActive,
@@ -525,34 +609,30 @@ export default function AddItemScreen() {
 
         {/* Shared: Photo section */}
         <View style={styles.photoSection}>
-          <View style={styles.photoActions}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.photoBtn,
-                pressed && styles.photoBtnPressed,
-              ]}
+          <View className="flex-row justify-center items-center gap-4 mb-6 w-full">
+            <TouchableOpacity
+              className="flex-1 items-center justify-center bg-white dark:bg-slate-800 py-6 rounded-2xl shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-700"
               onPress={takePhoto}
+              activeOpacity={0.9}
             >
-              <Ionicons name="camera" size={36} color={Colors.dark.primary} />
-              <Text style={[styles.photoBtnLabel, RTL.text]}>
+              <Ionicons name="camera" size={36} color={isDark ? "#60a5fa" : "#2563eb"} />
+              <Text className="text-blue-600 dark:text-blue-400 mt-2 text-center" style={RTL.text}>
                 {STRINGS.takePhoto}
               </Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.photoBtn,
-                pressed && styles.photoBtnPressed,
-              ]}
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="flex-1 items-center justify-center bg-white dark:bg-slate-800 py-6 rounded-2xl shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-700"
               onPress={pickImage}
+              activeOpacity={0.9}
             >
-              <Ionicons name="image" size={36} color={Colors.dark.primary} />
-              <Text style={[styles.photoBtnLabel, RTL.text]}>
+              <Ionicons name="image" size={36} color={isDark ? "#60a5fa" : "#2563eb"} />
+              <Text className="text-blue-600 dark:text-blue-400 mt-2 text-center" style={RTL.text}>
                 {STRINGS.uploadPhoto}
               </Text>
-            </Pressable>
+            </TouchableOpacity>
           </View>
           {imageUri ? (
-            <View style={styles.photoPreview}>
+            <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.photoPreview}>
               <Image
                 source={{ uri: imageUri }}
                 style={styles.photoThumbnail}
@@ -563,7 +643,7 @@ export default function AddItemScreen() {
                 onPress={() => setImageUri(null)}
                 hitSlop={12}
               >
-                <Ionicons name="close-circle" size={36} color="#fff" />
+                <Ionicons name="close-circle" size={36} color={isDark ? "#fff" : "#0f172a"} />
               </Pressable>
             </View>
           ) : null}
@@ -571,8 +651,8 @@ export default function AddItemScreen() {
 
         {/* Shared: Location Input (auto-fetched) */}
         <View style={styles.field}>
-          <Text style={[styles.label, RTL.text]}>{STRINGS.location}</Text>
-          <View style={styles.locationInputWrap}>
+          <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>{STRINGS.location}</Text>
+          <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.locationInputWrap}>
             <Pressable
               style={styles.locationGpsBtn}
               onPress={fetchCurrentLocation}
@@ -580,17 +660,29 @@ export default function AddItemScreen() {
               <Ionicons name="locate" size={22} color="#fff" />
             </Pressable>
             <TextInput
+              className="text-slate-900 dark:text-white"
               style={[styles.locationInput, RTL.input]}
               placeholder={
                 activeTab === "parking"
                   ? "מיקום החניה (כתובת/GPS)"
                   : `${STRINGS.savedLocations} / ${STRINGS.currentGPS}`
               }
-              placeholderTextColor={Colors.dark.muted}
+              placeholderTextColor={mutedColor}
               value={locationName}
               onChangeText={setLocationName}
             />
           </View>
+          {activeTab === "parking" && (
+            <Text
+              className="text-slate-500 dark:text-slate-400"
+              style={[
+                { fontSize: 12, marginTop: 4 },
+                RTL.text,
+              ]}
+            >
+              המיקום נלקח אוטומטית. במידת הצורך ניתן לערוך למיקום מדויק יותר.
+            </Text>
+          )}
         </View>
 
         {/* Item-specific fields */}
@@ -602,18 +694,19 @@ export default function AddItemScreen() {
         name="name"
         render={({ field: { onChange, onBlur, value } }) => (
           <View style={styles.field}>
-            <Text style={[styles.label, RTL.text]}>{STRINGS.nameRequired}</Text>
+            <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>{STRINGS.nameRequired}</Text>
             <TextInput
+              className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none text-slate-900 dark:text-white"
               style={[
                 styles.input,
                 errors.name && styles.inputError,
+                RTL.input,
               ]}
               placeholder="שם הפריט..."
-              placeholderTextColor={Colors.dark.muted}
+              placeholderTextColor={mutedColor}
               value={value}
               onChangeText={onChange}
               onBlur={onBlur}
-              {...RTL.input}
             />
             {errors.name ? (
               <Text style={[styles.errorText, RTL.text]}>
@@ -630,18 +723,18 @@ export default function AddItemScreen() {
         name="description"
         render={({ field: { onChange, onBlur, value } }) => (
           <View style={styles.field}>
-            <Text style={[styles.label, RTL.text]}>{STRINGS.description}</Text>
+            <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>{STRINGS.description}</Text>
             <TextInput
-              style={[styles.input, styles.inputMultiline]}
+              className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none text-slate-900 dark:text-white"
+              style={[styles.input, styles.inputMultiline, RTL.input]}
               placeholder={STRINGS.description}
-              placeholderTextColor={Colors.dark.muted}
+              placeholderTextColor={mutedColor}
               value={value}
               onChangeText={onChange}
               onBlur={onBlur}
               multiline
               numberOfLines={3}
               textAlignVertical="top"
-              {...RTL.input}
             />
           </View>
         )}
@@ -649,7 +742,7 @@ export default function AddItemScreen() {
 
       {/* Category chips (optional; tap active chip to deselect) */}
       <View style={styles.field}>
-        <Text style={[styles.label, RTL.text]}>{STRINGS.category}</Text>
+        <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>{STRINGS.category}</Text>
         <View style={styles.chipRow}>
           {CATEGORIES.map((cat) => (
             <Controller
@@ -658,6 +751,7 @@ export default function AddItemScreen() {
               name="category"
               render={({ field: { onChange, value } }) => (
                 <Pressable
+                  className={value === cat.id ? "" : "bg-white dark:bg-slate-800 shadow-sm dark:shadow-none"}
                   style={[
                     styles.chip,
                     value === cat.id ? styles.chipActive : styles.chipInactive,
@@ -665,6 +759,7 @@ export default function AddItemScreen() {
                   onPress={() => onChange(value === cat.id ? "" : cat.id)}
                 >
                   <Text
+                    className={value === cat.id ? "text-white" : "text-slate-900 dark:text-white"}
                     style={[
                       styles.chipText,
                       value === cat.id && styles.chipTextActive,
@@ -682,7 +777,7 @@ export default function AddItemScreen() {
 
       {/* Status chips (default בבעלותי) */}
       <View style={styles.field}>
-        <Text style={[styles.label, RTL.text]}>{STRINGS.status}</Text>
+        <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>{STRINGS.status}</Text>
         <View style={styles.chipRow}>
           {STATUS_OPTIONS.map((opt) => (
             <Controller
@@ -691,6 +786,7 @@ export default function AddItemScreen() {
               name="status"
               render={({ field: { onChange, value } }) => (
                 <Pressable
+                  className={value === opt.id ? "" : "bg-white dark:bg-slate-800 shadow-sm dark:shadow-none"}
                   style={[
                     styles.chip,
                     value === opt.id ? styles.chipActive : styles.chipInactive,
@@ -698,6 +794,7 @@ export default function AddItemScreen() {
                   onPress={() => onChange(opt.id)}
                 >
                   <Text
+                    className={value === opt.id ? "text-white" : "text-slate-900 dark:text-white"}
                     style={[
                       styles.chipText,
                       value === opt.id && styles.chipTextActive,
@@ -716,45 +813,159 @@ export default function AddItemScreen() {
       {/* If status === loaned: למי הושאל? + תאריך השאלה */}
       {status === "loaned" && (
         <View style={styles.conditionalSection}>
-          <Text style={[styles.conditionalTitle, RTL.text]}>הושאל</Text>
+          <Text style={[styles.conditionalTitle, RTL.text]}>פרטי השאלה</Text>
           <Controller
             control={control}
             name="borrowerName"
             render={({ field: { onChange, onBlur, value } }) => (
               <View style={styles.field}>
-                <Text style={[styles.label, RTL.text]}>למי הושאל?</Text>
+                <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>שם השואל</Text>
                 <TextInput
-                  style={styles.input}
+                  className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none text-slate-900 dark:text-white"
+                  style={[styles.input, RTL.input]}
                   placeholder="שם השואל"
-                  placeholderTextColor={Colors.dark.muted}
+                  placeholderTextColor={mutedColor}
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
-                  {...RTL.input}
                 />
               </View>
             )}
           />
           <Controller
             control={control}
-            name="loanDate"
+            name="borrowerPhone"
             render={({ field: { onChange, onBlur, value } }) => (
               <View style={styles.field}>
-                <Text style={[styles.label, RTL.text]}>
-                  {STRINGS.loanDate}
-                </Text>
+                <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>טלפון</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={Colors.dark.muted}
+                  className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none text-slate-900 dark:text-white"
+                  style={[styles.input, RTL.input]}
+                  placeholder="טלפון"
+                  placeholderTextColor={mutedColor}
+                  keyboardType="phone-pad"
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
-                  {...RTL.input}
+                />
+                <Text
+                  className="text-slate-500 dark:text-slate-400"
+                  style={[
+                    { fontSize: 11, marginTop: 4 },
+                    RTL.text,
+                  ]}
+                >
+                  מומלץ להזין כדי לקבל תזכורות בוואטסאפ
+                </Text>
+              </View>
+            )}
+          />
+          <View style={styles.field}>
+            <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>
+              {STRINGS.loanDate}
+            </Text>
+            <TouchableOpacity
+              className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none"
+              style={[styles.input, styles.dateTouchable]}
+              onPress={() => {
+                Keyboard.dismiss();
+                setShowActionPicker(true);
+              }}
+              activeOpacity={0.9}
+            >
+              <Text style={[styles.dateTouchableText, RTL.text]}>
+                {formatDateDisplay(actionDate)}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.field}>
+            <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>
+              תאריך החזרה צפוי
+            </Text>
+            <TouchableOpacity
+              className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none"
+              style={[styles.input, styles.dateTouchable]}
+              onPress={() => {
+                Keyboard.dismiss();
+                setShowReturnPicker(true);
+              }}
+              activeOpacity={0.9}
+            >
+              <Text
+                className={returnDate === null ? "text-slate-500 dark:text-slate-400" : "text-slate-900 dark:text-white"}
+                style={[
+                  styles.dateTouchableText,
+                  RTL.text,
+                ]}
+              >
+                {returnDate === null
+                  ? "בחר תאריך..."
+                  : formatDateDisplay(returnDate)}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* If status === sold: פרטי מסירה */}
+      {status === "sold" && (
+        <View style={styles.conditionalSection}>
+          <Text style={[styles.conditionalTitle, RTL.text]}>פרטי מסירה</Text>
+          <Controller
+            control={control}
+            name="borrowerName"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <View style={styles.field}>
+                <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>
+                  למי נמסר/נמכר?
+                </Text>
+                <TextInput
+                  className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none text-slate-900 dark:text-white"
+                  style={[styles.input, RTL.input]}
+                  placeholder="שם המקבל"
+                  placeholderTextColor={mutedColor}
+                  value={value}
+                  onChangeText={onChange}
+                  onBlur={onBlur}
                 />
               </View>
             )}
           />
+          <Controller
+            control={control}
+            name="borrowerPhone"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <View style={styles.field}>
+                <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>טלפון</Text>
+                <TextInput
+                  className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none text-slate-900 dark:text-white"
+                  style={[styles.input, RTL.input]}
+                  placeholder="טלפון"
+                  placeholderTextColor={mutedColor}
+                  keyboardType="phone-pad"
+                  value={value}
+                  onChangeText={onChange}
+                  onBlur={onBlur}
+                />
+              </View>
+            )}
+          />
+          <View style={styles.field}>
+            <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>תאריך</Text>
+            <TouchableOpacity
+              className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none"
+              style={[styles.input, styles.dateTouchable]}
+              onPress={() => {
+                Keyboard.dismiss();
+                setShowActionPicker(true);
+              }}
+              activeOpacity={0.9}
+            >
+              <Text className="text-slate-900 dark:text-white" style={[styles.dateTouchableText, RTL.text]}>
+                {formatDateDisplay(actionDate)}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -766,20 +977,20 @@ export default function AddItemScreen() {
             name="lastSeenWhere"
             render={({ field: { onChange, onBlur, value } }) => (
               <View style={styles.field}>
-                <Text style={[styles.label, RTL.text]}>
+                <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>
                   איפה נראה לאחרונה?
                 </Text>
                 <TextInput
-                  style={[styles.input, styles.inputMultiline]}
+                  className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none text-slate-900 dark:text-white"
+                  style={[styles.input, styles.inputMultiline, RTL.input]}
                   placeholder={STRINGS.lastSeenWhere}
-                  placeholderTextColor={Colors.dark.muted}
+                  placeholderTextColor={mutedColor}
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
                   multiline
                   numberOfLines={3}
                   textAlignVertical="top"
-                  {...RTL.input}
                 />
               </View>
             )}
@@ -792,11 +1003,12 @@ export default function AddItemScreen() {
         {/* Parking-specific: Notes */}
         {activeTab === "parking" && (
           <View style={styles.field}>
-            <Text style={[styles.label, RTL.text]}>הערות</Text>
+            <Text className="text-slate-900 dark:text-white" style={[styles.label, RTL.text]}>הערות</Text>
             <TextInput
+              className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none text-slate-900 dark:text-white"
               style={[styles.input, styles.inputMultiline, RTL.input]}
               placeholder="הערות (קומה, עמוד...)"
-              placeholderTextColor={Colors.dark.muted}
+              placeholderTextColor={mutedColor}
               value={parkingNotes}
               onChangeText={setParkingNotes}
               multiline
@@ -809,7 +1021,7 @@ export default function AddItemScreen() {
 
       {/* Sticky Save button – fixed at bottom, inside KeyboardAvoidingView */}
       <View
-        className="w-full px-5 pt-4 bg-slate-900 border-t border-slate-800"
+        className="w-full px-5 pt-4 bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800"
         style={{ paddingBottom: Math.max(insets.bottom, 32) }}
       >
         <TouchableOpacity
@@ -825,7 +1037,7 @@ export default function AddItemScreen() {
           {isSubmitting || saving ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text className="text-white font-bold text-lg text-center">
+            <Text className="text-slate-900 dark:text-white font-bold text-lg text-center">
               {activeTab === "item"
                 ? isEditing
                   ? "עדכן פריט"
@@ -838,6 +1050,123 @@ export default function AddItemScreen() {
         </TouchableOpacity>
       </View>
 
+      {showActionPicker &&
+        (Platform.OS === "ios" ? (
+          <Modal
+            visible
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowActionPicker(false)}
+          >
+            <View style={styles.pickerModalContainer}>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => setShowActionPicker(false)}
+              />
+              <View className="bg-white dark:bg-slate-800" style={styles.pickerModalContent}>
+                <View className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700" style={styles.pickerToolbar}>
+                  <TouchableOpacity
+                    onPress={() => setShowActionPicker(false)}
+                    hitSlop={12}
+                    style={styles.pickerToolbarBtn}
+                  >
+                    <Text style={[styles.pickerToolbarDone, RTL.text]}>
+                      סיום
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setShowActionPicker(false)}
+                    hitSlop={12}
+                    style={styles.pickerToolbarBtn}
+                  >
+                    <Text style={[styles.pickerToolbarCancel, RTL.text]}>
+                      ביטול
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View className="bg-white dark:bg-slate-800" style={styles.pickerBody}>
+                  <DateTimePicker
+                    value={actionDate}
+                    mode="date"
+                    display="spinner"
+                    onChange={(_, selectedDate) => {
+                      if (selectedDate) setActionDate(selectedDate);
+                    }}
+                  />
+                </View>
+              </View>
+            </View>
+          </Modal>
+        ) : (
+          <DateTimePicker
+            value={actionDate}
+            mode="date"
+            display="default"
+            onChange={(e, selectedDate) => {
+              setShowActionPicker(false);
+              if (e.type === "set" && selectedDate) setActionDate(selectedDate);
+            }}
+          />
+        ))}
+      {showReturnPicker &&
+        (Platform.OS === "ios" ? (
+          <Modal
+            visible
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowReturnPicker(false)}
+          >
+            <View style={styles.pickerModalContainer}>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => setShowReturnPicker(false)}
+              />
+              <View className="bg-white dark:bg-slate-800" style={styles.pickerModalContent}>
+                <View className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700" style={styles.pickerToolbar}>
+                  <TouchableOpacity
+                    onPress={() => setShowReturnPicker(false)}
+                    hitSlop={12}
+                    style={styles.pickerToolbarBtn}
+                  >
+                    <Text style={[styles.pickerToolbarDone, RTL.text]}>
+                      סיום
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setShowReturnPicker(false)}
+                    hitSlop={12}
+                    style={styles.pickerToolbarBtn}
+                  >
+                    <Text style={[styles.pickerToolbarCancel, RTL.text]}>
+                      ביטול
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View className="bg-white dark:bg-slate-800" style={styles.pickerBody}>
+                  <DateTimePicker
+                    value={returnDate ?? new Date()}
+                    mode="date"
+                    display="spinner"
+                    onChange={(_, selectedDate) => {
+                      if (selectedDate) setReturnDate(selectedDate);
+                    }}
+                  />
+                </View>
+              </View>
+            </View>
+          </Modal>
+        ) : (
+          <DateTimePicker
+            value={returnDate ?? new Date()}
+            mode="date"
+            display="default"
+            onChange={(e, selectedDate) => {
+              setShowReturnPicker(false);
+              if (e.type === "set" && selectedDate) setReturnDate(selectedDate);
+            }}
+          />
+        ))}
+
       <Modal
         visible={successModalVisible}
         transparent
@@ -845,17 +1174,18 @@ export default function AddItemScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={closeSuccessAndGoToItems}>
           <Pressable
+            className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none"
             style={styles.modalBox}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.modalTitle, RTL.text]}>{STRINGS.success}</Text>
+            <Text className="text-slate-900 dark:text-white" style={[styles.modalTitle, RTL.text]}>{STRINGS.success}</Text>
             <Pressable style={styles.modalBtn} onPress={copyDetails}>
-              <Text style={[styles.modalBtnText, RTL.text]}>
+              <Text className="text-white" style={[styles.modalBtnText, RTL.text]}>
                 {STRINGS.copyDetails}
               </Text>
             </Pressable>
             <Pressable style={styles.modalBtn} onPress={shareToWhatsApp}>
-              <Text style={[styles.modalBtnText, RTL.text]}>
+              <Text className="text-white" style={[styles.modalBtnText, RTL.text]}>
                 {STRINGS.shareToWhatsApp}
               </Text>
             </Pressable>
@@ -863,7 +1193,7 @@ export default function AddItemScreen() {
               style={styles.modalBtnSecondary}
               onPress={closeSuccessAndGoToItems}
             >
-              <Text style={[styles.modalBtnTextSecondary, RTL.text]}>
+              <Text className="text-slate-500 dark:text-slate-400" style={[styles.modalBtnTextSecondary, RTL.text]}>
                 {STRINGS.cancel}
               </Text>
             </Pressable>
@@ -884,7 +1214,6 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20 },
   tabToggle: {
     flexDirection: "row-reverse",
-    backgroundColor: SLATE_800,
     borderRadius: 16,
     padding: 4,
     marginBottom: 24,
@@ -903,7 +1232,6 @@ const styles = StyleSheet.create({
   tabBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: SLATE_400,
   },
   tabBtnTextActive: {
     color: "#fff",
@@ -912,31 +1240,10 @@ const styles = StyleSheet.create({
   photoSection: {
     marginBottom: 24,
   },
-  photoActions: {
-    flexDirection: "row-reverse",
-    gap: 12,
-  },
-  photoBtn: {
-    flex: 1,
-    backgroundColor: SLATE_800,
-    borderRadius: 16,
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  photoBtnPressed: { opacity: 0.9 },
-  photoBtnLabel: {
-    marginTop: 10,
-    fontSize: 15,
-    color: Colors.dark.primary,
-    fontWeight: "600",
-  },
   photoPreview: {
     marginTop: 16,
     borderRadius: 12,
     overflow: "hidden",
-    backgroundColor: SLATE_800,
     position: "relative",
   },
   photoThumbnail: {
@@ -955,20 +1262,27 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.dark.text,
     marginBottom: 8,
   },
   input: {
-    backgroundColor: SLATE_800,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 16,
     fontSize: 16,
-    color: Colors.dark.text,
   },
   inputMultiline: {
     minHeight: 88,
     textAlignVertical: "top",
+  },
+  dateTouchable: {
+    borderRadius: 16,
+  },
+  dateTouchableText: {
+    fontSize: 16,
+    textAlign: "right",
+  },
+  datePlaceholder: {
+    color: SLATE_400,
   },
   inputError: { borderWidth: 1, borderColor: "#ef4444" },
   errorText: {
@@ -986,21 +1300,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
   },
-  chipInactive: {
-    backgroundColor: SLATE_800,
-  },
+  chipInactive: {},
   chipActive: {
     backgroundColor: BLUE_500,
   },
   chipText: {
-    color: Colors.dark.text,
     fontSize: 14,
   },
   chipTextActive: { color: "#fff" },
   locationInputWrap: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: SLATE_800,
     borderRadius: 12,
     paddingLeft: 14,
     paddingRight: 12,
@@ -1009,7 +1319,6 @@ const styles = StyleSheet.create({
   locationInput: {
     flex: 1,
     fontSize: 16,
-    color: Colors.dark.text,
     paddingVertical: 12,
     paddingHorizontal: 10,
   },
@@ -1042,7 +1351,6 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   modalBox: {
-    backgroundColor: Colors.dark.card,
     borderRadius: 20,
     padding: 24,
     width: "100%",
@@ -1051,7 +1359,6 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: Colors.dark.text,
     marginBottom: 20,
   },
   modalBtn: {
@@ -1061,11 +1368,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-  modalBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  modalBtnText: { fontSize: 16, fontWeight: "600" },
   modalBtnSecondary: {
     paddingVertical: 14,
     alignItems: "center",
     marginTop: 4,
   },
-  modalBtnTextSecondary: { color: Colors.dark.muted, fontSize: 16 },
+  modalBtnTextSecondary: { fontSize: 16 },
+  pickerModalContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  pickerModalContent: {},
+  pickerToolbar: {
+    flexDirection: "row-reverse",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+  },
+  pickerToolbarBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  pickerToolbarDone: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: BLUE_500,
+  },
+  pickerToolbarCancel: {
+    fontSize: 16,
+    color: SLATE_400,
+  },
+  pickerBody: {},
 });

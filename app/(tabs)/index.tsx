@@ -1,90 +1,113 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Link, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { router } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, type Item } from "@/lib/api";
 import { STRINGS } from "@/constants/strings";
 import { Colors, RTL } from "@/constants/theme";
+import { supabase } from "@/lib/supabase";
 
-const PLACEHOLDER_USER = "משתמש";
+const DEFAULT_USER_NAME = "משתמש";
 
-const CARD_BG = "#1e293b"; // slate-800
 const ACCENT_BLUE = "#3B82F6";
 const ACCENT_GREEN = "#22c55e";
 const ACCENT_RED = "#ef4444";
 const ACCENT_PURPLE = "#a855f7";
 
-const QUICK_ACTIONS = [
-  {
-    id: "add",
-    title: STRINGS.addItem,
-    subtitle: "הוסף פריט לרשימה",
-    icon: "add" as const,
-    color: ACCENT_BLUE,
-    href: "/(tabs)/add-item",
-    push: null,
-  },
-  {
-    id: "parking",
-    title: STRINGS.whereDidIPark,
-    subtitle: "שמור מיקום חניה",
-    icon: "location" as const,
-    color: ACCENT_GREEN,
-    href: null,
-    push: "/(tabs)/parking",
-  },
-  {
-    id: "search",
-    title: STRINGS.search,
-    subtitle: "חפש פריטים ומיקומים",
-    icon: "search" as const,
-    color: ACCENT_RED,
-    href: null,
-    push: "/(tabs)/items",
-  },
-  {
-    id: "loans",
-    title: STRINGS.manageLoans,
-    subtitle: "נהל השאלות פעילות",
-    icon: "people" as const,
-    color: ACCENT_PURPLE,
-    href: null,
-    push: "/(tabs)/items?tab=loans",
-  },
-] as const;
+interface RecentItem {
+  id: string;
+  name: string;
+  created_at: string;
+}
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
-  const [items, setItems] = useState<Item[]>([]);
-  const [parkingCount, setParkingCount] = useState(0);
-  const [activeLoansCount, setActiveLoansCount] = useState(0);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalParkings, setTotalParkings] = useState(0);
+  const [activeLoans, setActiveLoans] = useState(0);
+  const [userName, setUserName] = useState(DEFAULT_USER_NAME);
+  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
 
-  useEffect(() => {
-    const load = async () => {
-      const [itemList, parkings] = await Promise.all([
-        api.getItems(),
-        api.getParkings(),
-      ]);
-      setItems(itemList);
-      setParkingCount(parkings.length);
-      setActiveLoansCount(api.getActiveLoans().length);
-    };
-    load();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
 
-  const recentActivity = items.slice(0, 5);
+      const fetchDashboardData = async () => {
+        try {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user || !isActive) return;
+
+          const name =
+            user.user_metadata?.full_name?.trim() ||
+            user.user_metadata?.name?.trim() ||
+            (user.email ? user.email.split("@")[0] : null);
+          if (name) setUserName(name);
+          else setUserName(DEFAULT_USER_NAME);
+
+          const [
+            { count: itemsCount },
+            { count: parkingsCount },
+            { count: loansCount },
+            { data: recent },
+          ] = await Promise.all([
+            supabase
+              .from("items")
+              .select("*", { count: "exact", head: true })
+              .eq("user_id", user.id),
+            supabase
+              .from("parkings")
+              .select("*", { count: "exact", head: true })
+              .eq("user_id", user.id),
+            supabase
+              .from("items")
+              .select("*", { count: "exact", head: true })
+              .eq("user_id", user.id)
+              .eq("status", "loaned"),
+            supabase
+              .from("items")
+              .select("id, name, created_at")
+              .eq("user_id", user.id)
+              .order("created_at", { ascending: false })
+              .limit(3),
+          ]);
+
+          if (isActive) {
+            setTotalItems(itemsCount ?? 0);
+            setTotalParkings(parkingsCount ?? 0);
+            setActiveLoans(loansCount ?? 0);
+            setRecentItems((recent ?? []) as RecentItem[]);
+          }
+        } catch {
+          if (isActive) {
+            setTotalItems(0);
+            setTotalParkings(0);
+            setActiveLoans(0);
+            setRecentItems([]);
+          }
+        }
+      };
+
+      fetchDashboardData();
+      return () => {
+        isActive = false;
+      };
+    }, [])
+  );
 
   return (
     <ScrollView
-      style={styles.container}
+      className="flex-1 bg-slate-50 dark:bg-slate-900"
       contentContainerStyle={[
         styles.content,
         { paddingTop: Math.max(insets.top, 20) },
@@ -93,92 +116,112 @@ export default function DashboardScreen() {
     >
       {/* Header: strictly right-aligned greeting + subtitle */}
       <View style={styles.header}>
-        <Text style={[styles.greeting, RTL.text]}>
-          {STRINGS.greeting}, {PLACEHOLDER_USER}
+        <Text className="text-slate-900 dark:text-white" style={[styles.greeting, RTL.text]}>
+          {STRINGS.greeting}, {userName}
         </Text>
-        <Text style={[styles.subtitle, RTL.text]}>{STRINGS.dashboard}</Text>
+        <Text className="text-slate-500 dark:text-slate-400" style={[styles.subtitle, RTL.text]}>{STRINGS.dashboard}</Text>
       </View>
 
       {/* Stats row: RTL order — Total Items (far right) → Parkings → Active Loans */}
       <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={[styles.statValue, RTL.text]}>{items.length}</Text>
-          <Text style={[styles.statLabel, RTL.text]}>{STRINGS.totalItems}</Text>
+        <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.statCard}>
+          <Text className="text-slate-900 dark:text-white" style={[styles.statValue, RTL.text]}>{totalItems}</Text>
+          <Text className="text-slate-500 dark:text-slate-400" style={[styles.statLabel, RTL.text]}>{STRINGS.totalItems}</Text>
         </View>
-        <View style={styles.statCard}>
-          <Text style={[styles.statValue, RTL.text]}>{parkingCount}</Text>
-          <Text style={[styles.statLabel, RTL.text]}>{STRINGS.savedParkings}</Text>
+        <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.statCard}>
+          <Text className="text-slate-900 dark:text-white" style={[styles.statValue, RTL.text]}>{totalParkings}</Text>
+          <Text className="text-slate-500 dark:text-slate-400" style={[styles.statLabel, RTL.text]}>{STRINGS.savedParkings}</Text>
         </View>
-        <View style={styles.statCard}>
-          <Text style={[styles.statValue, RTL.text]}>{activeLoansCount}</Text>
-          <Text style={[styles.statLabel, RTL.text]}>{STRINGS.activeLoans}</Text>
+        <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.statCard}>
+          <Text className="text-slate-900 dark:text-white" style={[styles.statValue, RTL.text]}>{activeLoans}</Text>
+          <Text className="text-slate-500 dark:text-slate-400" style={[styles.statLabel, RTL.text]}>{STRINGS.activeLoans}</Text>
         </View>
       </View>
 
-      <Text style={[styles.sectionTitle, RTL.text]}>פעולות מהירות</Text>
-      <View style={styles.quickStack}>
-        {QUICK_ACTIONS.map((action) => {
-          const content = (
-            <View style={styles.quickCardRow}>
-              <View style={[styles.quickIconWrap, { backgroundColor: `${action.color}22` }]}>
-                <Ionicons name={action.icon} size={26} color={action.color} />
-              </View>
-              <View style={styles.quickCardTextWrap}>
-                <Text style={[styles.quickCardTitle, RTL.text]}>{action.title}</Text>
-                <Text style={[styles.quickCardSubtitle, RTL.text]}>{action.subtitle}</Text>
-              </View>
-            </View>
-          );
-          return action.href ? (
-            <Link key={action.id} href={action.href as any} asChild>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.quickCard,
-                  pressed && styles.quickCardPressed,
-                ]}
-              >
-                {content}
-              </Pressable>
-            </Link>
-          ) : (
-            <Pressable
-              key={action.id}
-              style={({ pressed }) => [
-                styles.quickCard,
-                pressed && styles.quickCardPressed,
-              ]}
-              onPress={() => router.push(action.push as any)}
-            >
-              {content}
-            </Pressable>
-          );
-        })}
+      <Text className="text-slate-900 dark:text-white" style={[styles.sectionTitle, RTL.text]}>פעולות מהירות</Text>
+      <View className="w-full mb-7">
+        <TouchableOpacity
+          className="flex-row justify-end items-center bg-white dark:bg-slate-800 p-4 rounded-2xl mb-3 shadow-sm dark:shadow-none border border-slate-100 dark:border-slate-800"
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/add-item", params: { mode: "item" } })
+          }
+          activeOpacity={0.9}
+          style={{ flexDirection: "row-reverse" }}
+        >
+          <View className="flex-1 items-end">
+            <Text className="text-slate-900 dark:text-white font-bold text-lg text-right">{STRINGS.addItem}</Text>
+            <Text className="text-slate-500 dark:text-slate-400 text-sm text-right mt-0.5">הוסף פריט לרשימה</Text>
+          </View>
+          <Ionicons name="add" size={26} color={ACCENT_BLUE} style={{ marginLeft: 12 }} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className="flex-row justify-end items-center bg-white dark:bg-slate-800 p-4 rounded-2xl mb-3 shadow-sm dark:shadow-none border border-slate-100 dark:border-slate-800"
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/add-item", params: { mode: "parking" } })
+          }
+          activeOpacity={0.9}
+          style={{ flexDirection: "row-reverse" }}
+        >
+          <View className="flex-1 items-end">
+            <Text className="text-slate-900 dark:text-white font-bold text-lg text-right">{STRINGS.whereDidIPark}</Text>
+            <Text className="text-slate-500 dark:text-slate-400 text-sm text-right mt-0.5">שמור מיקום חניה</Text>
+          </View>
+          <Ionicons name="location" size={26} color={ACCENT_GREEN} style={{ marginLeft: 12 }} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className="flex-row justify-end items-center bg-white dark:bg-slate-800 p-4 rounded-2xl mb-3 shadow-sm dark:shadow-none border border-slate-100 dark:border-slate-800"
+          onPress={() => router.push("/(tabs)/items")}
+          activeOpacity={0.9}
+          style={{ flexDirection: "row-reverse" }}
+        >
+          <View className="flex-1 items-end">
+            <Text className="text-slate-900 dark:text-white font-bold text-lg text-right">{STRINGS.search}</Text>
+            <Text className="text-slate-500 dark:text-slate-400 text-sm text-right mt-0.5">חפש פריטים ומיקומים</Text>
+          </View>
+          <Ionicons name="search" size={26} color={ACCENT_RED} style={{ marginLeft: 12 }} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className="flex-row justify-end items-center bg-white dark:bg-slate-800 p-4 rounded-2xl mb-3 shadow-sm dark:shadow-none border border-slate-100 dark:border-slate-800"
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/items", params: { tab: "loans" } })
+          }
+          activeOpacity={0.9}
+          style={{ flexDirection: "row-reverse" }}
+        >
+          <View className="flex-1 items-end">
+            <Text className="text-slate-900 dark:text-white font-bold text-lg text-right">{STRINGS.manageLoans}</Text>
+            <Text className="text-slate-500 dark:text-slate-400 text-sm text-right mt-0.5">נהל השאלות פעילות</Text>
+          </View>
+          <Ionicons name="people" size={26} color={ACCENT_PURPLE} style={{ marginLeft: 12 }} />
+        </TouchableOpacity>
       </View>
 
-      <Text style={[styles.sectionTitle, RTL.text]}>{STRINGS.recentActivity}</Text>
-      <View style={styles.activityList}>
-        {recentActivity.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={[styles.emptyText, RTL.text]}>אין פעילות אחרונה</Text>
+      <Text className="text-slate-900 dark:text-white" style={[styles.sectionTitle, RTL.text]}>{STRINGS.recentActivity}</Text>
+      <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-700" style={styles.activityList}>
+        {recentItems.length === 0 ? (
+          <View className="bg-white dark:bg-slate-800" style={styles.emptyState}>
+            <Text className="text-slate-500 dark:text-slate-400" style={[styles.emptyText, RTL.text]}>אין פעילות אחרונה</Text>
           </View>
         ) : (
-          recentActivity.map((item) => (
+          recentItems.map((item) => (
             <Pressable
               key={item.id}
+              className="border-b border-slate-200 dark:border-slate-700"
               style={({ pressed }) => [
                 styles.activityRow,
                 pressed && styles.activityRowPressed,
               ]}
-              onPress={() =>
-                router.push({ pathname: "/(tabs)/items", params: { id: item.id } })
-              }
+              onPress={() => router.push(`/item/${item.id}`)}
             >
               <View style={[styles.activityRowContent, styles.activityRowRTL]}>
-                <Ionicons name="chevron-back" size={20} color={Colors.dark.muted} />
+                <Ionicons name="chevron-back" size={20} color="#64748b" />
                 <View style={styles.activityContent}>
-                  <Text style={[styles.activityName, RTL.text]}>{item.name}</Text>
-                  <Text style={[styles.activityMeta, RTL.text]}>
-                    {item.category} • {new Date(item.updatedAt).toLocaleDateString("he-IL")}
+                  <Text className="text-slate-900 dark:text-white" style={[styles.activityName, RTL.text]}>{item.name}</Text>
+                  <Text className="text-slate-500 dark:text-slate-400" style={[styles.activityMeta, RTL.text]}>
+                    {new Date(item.created_at).toLocaleDateString("he-IL")}
                   </Text>
                 </View>
                 <View style={styles.activityBullet} />
@@ -194,7 +237,6 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
   },
   content: {
     paddingHorizontal: 20,
@@ -207,12 +249,10 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 26,
     fontWeight: "700",
-    color: Colors.dark.text,
     textAlign: "right",
   },
   subtitle: {
     fontSize: 14,
-    color: Colors.dark.muted,
     marginTop: 4,
     textAlign: "right",
   },
@@ -223,7 +263,6 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: Colors.dark.card,
     borderRadius: 20,
     padding: 18,
     alignItems: "center",
@@ -232,64 +271,20 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 24,
     fontWeight: "700",
-    color: Colors.dark.text,
     textAlign: "center",
   },
   statLabel: {
     fontSize: 12,
-    color: Colors.dark.muted,
     marginTop: 8,
     textAlign: "center",
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.dark.text,
     marginBottom: 12,
     textAlign: "right",
   },
-  quickStack: {
-    gap: 12,
-    marginBottom: 28,
-  },
-  quickCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-  },
-  quickCardPressed: { opacity: 0.9 },
-  quickCardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  quickIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  quickCardTextWrap: {
-    flex: 1,
-    marginRight: 16,
-    alignItems: "flex-end",
-  },
-  quickCardTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.dark.text,
-    textAlign: "right",
-  },
-  quickCardSubtitle: {
-    fontSize: 13,
-    color: Colors.dark.muted,
-    marginTop: 2,
-    textAlign: "right",
-  },
   activityList: {
-    backgroundColor: CARD_BG,
     borderRadius: 16,
     overflow: "hidden",
   },
@@ -297,7 +292,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
   },
   activityRowPressed: { backgroundColor: "rgba(255,255,255,0.05)" },
   activityRowRTL: {
@@ -315,22 +309,18 @@ const styles = StyleSheet.create({
   activityName: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.dark.text,
     textAlign: "right",
   },
   activityMeta: {
     fontSize: 12,
-    color: Colors.dark.muted,
     marginTop: 2,
     textAlign: "right",
   },
   emptyState: {
-    backgroundColor: CARD_BG,
     borderRadius: 16,
     padding: 24,
   },
   emptyText: {
-    color: Colors.dark.muted,
     textAlign: "right",
     fontSize: 15,
   },

@@ -1,11 +1,16 @@
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { ChevronLeft, PackageOpen } from "lucide-react-native";
+import * as Linking from "expo-linking";
+import { useColorScheme } from "nativewind";
+import { ChevronLeft, MoreVertical, PackageOpen } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
+  Keyboard,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -20,6 +25,7 @@ import { STRINGS } from "@/constants/strings";
 import { Colors, RTL } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 
+const SLATE_700 = "#334155";
 const SLATE_800 = "#1e293b";
 const SLATE_400 = "#94a3b8";
 const SLATE_500 = "#64748b";
@@ -34,6 +40,9 @@ export interface SupabaseItem {
   status: string;
   image_url: string | null;
   borrower_name: string | null;
+  contact_name?: string | null;
+  contact_phone?: string | null;
+  return_date?: string | null;
   last_seen_notes: string | null;
   created_at: string;
 }
@@ -43,7 +52,50 @@ const STATUS_LABELS: Record<string, string> = {
   loaned: STRINGS.loaned,
   sold: STRINGS.sold,
   lost: STRINGS.lost,
+  given: "נמסר",
 };
+
+type StatusFilter =
+  | "all"
+  | "owned"
+  | "loaned"
+  | "sold"
+  | "given"
+  | "lost";
+
+const FILTER_CHIPS: { id: StatusFilter; label: string }[] = [
+  { id: "all", label: "הכל" },
+  { id: "owned", label: STRINGS.owned },
+  { id: "loaned", label: STRINGS.loaned },
+  { id: "sold", label: STRINGS.sold },
+  { id: "given", label: "נמסר" },
+  { id: "lost", label: STRINGS.lost },
+];
+
+function formatPhoneForWhatsApp(raw: string): string {
+  const cleaned = raw.replace(/[\s\-]/g, "");
+  if (cleaned.startsWith("0")) return "+972" + cleaned.slice(1);
+  if (!cleaned.startsWith("+")) return "+972" + cleaned;
+  return cleaned;
+}
+
+/** Date-only comparison: true if return date is strictly before today (ignores time). */
+function checkIsLate(returnDateString: string | null | undefined): boolean {
+  if (!returnDateString) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const returnDate = new Date(returnDateString);
+  returnDate.setHours(0, 0, 0, 0);
+  return returnDate < today;
+}
+
+function getLoanSubStatus(
+  returnDate: string | null | undefined
+): "unknown" | "late" | "ontime" | null {
+  if (returnDate == null || returnDate === "") return "unknown";
+  if (checkIsLate(returnDate)) return "late";
+  return "ontime";
+}
 
 async function fetchItemsForUser(): Promise<SupabaseItem[]> {
   const {
@@ -61,15 +113,170 @@ async function fetchItemsForUser(): Promise<SupabaseItem[]> {
   return (data ?? []) as SupabaseItem[];
 }
 
+function ItemCard({
+  item,
+  onMarkReturned,
+}: {
+  item: SupabaseItem;
+  onMarkReturned: (id: string) => void;
+}) {
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const iconColor = isDark ? SLATE_400 : SLATE_500;
+  const [isImgLoading, setIsImgLoading] = useState(!!item.image_url);
+  useEffect(() => {
+    if (item.image_url) setIsImgLoading(true);
+  }, [item.image_url]);
+
+  const contactName =
+    item.contact_name ?? item.borrower_name ?? "השואל/ה";
+  const contactPhone = item.contact_phone?.trim();
+  const isLoaned = item.status === "loaned";
+  const subStatus = isLoaned ? getLoanSubStatus(item.return_date) : null;
+
+  const onMorePress = useCallback(() => {
+    const buttons =
+      item.status === "loaned"
+        ? [
+            {
+              text: "סומן כהוחזר",
+              onPress: () => onMarkReturned(item.id),
+            },
+            { text: "ביטול", style: "cancel" as const },
+          ]
+        : [{ text: "ביטול", style: "cancel" as const }];
+    Alert.alert("פעולות פריט", "", buttons);
+  }, [item.id, item.status, onMarkReturned]);
+
+  const onWhatsAppPress = useCallback(() => {
+    if (!contactPhone) return;
+    const formatted = formatPhoneForWhatsApp(contactPhone);
+    const message = `היי ${contactName}, מזכיר/ה לך שעדיין לא קיבלתי את הפריט ${item.name} בחזרה ממך.`;
+    const encoded = encodeURIComponent(message);
+    Linking.openURL(`whatsapp://send?phone=${formatted}&text=${encoded}`);
+  }, [contactPhone, contactName, item.name]);
+
+  return (
+    <TouchableOpacity
+      className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none"
+      style={styles.card}
+      activeOpacity={0.85}
+      onPress={() => router.push(`/item/${item.id}`)}
+    >
+      {/* Far right: thumbnail or fallback icon */}
+      <View style={styles.cardThumbWrap}>
+        {item.image_url ? (
+          <View className="w-16 h-16 rounded-lg overflow-hidden relative">
+            <Image
+              source={{ uri: item.image_url }}
+              className="w-16 h-16 rounded-lg"
+              onLoadEnd={() => setIsImgLoading(false)}
+              onError={() => setIsImgLoading(false)}
+            />
+            {isImgLoading && (
+              <View className="absolute inset-0 bg-slate-200 dark:bg-slate-700 items-center justify-center">
+                <ActivityIndicator size="small" color={iconColor} />
+              </View>
+            )}
+          </View>
+        ) : (
+          <View className="w-16 h-16 rounded-lg bg-slate-200 dark:bg-slate-700 items-center justify-center">
+            <Ionicons name="cube-outline" size={24} color={iconColor} />
+          </View>
+        )}
+      </View>
+      {/* Text container: flex-1, right-aligned */}
+      <View style={styles.cardContent}>
+        <Text className="text-slate-900 dark:text-white" style={[styles.cardName, RTL.text]} numberOfLines={1}>
+          {item.name}
+        </Text>
+        {item.location_name ? (
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={14} color={iconColor} />
+            <Text className="text-slate-500 dark:text-slate-400" style={[styles.cardLocation, RTL.text]} numberOfLines={1}>
+              {item.location_name}
+            </Text>
+          </View>
+        ) : null}
+        <View style={styles.statusRow}>
+          <View
+            style={[
+              styles.statusChip,
+              item.status === "lost" && styles.statusLost,
+            ]}
+          >
+            <Text style={[styles.statusText, RTL.text]}>
+              {STATUS_LABELS[item.status] ?? item.status}
+            </Text>
+          </View>
+          {subStatus !== null && (
+            <View
+              style={[
+                styles.subStatusChip,
+                subStatus === "unknown" && styles.subStatusUnknown,
+                subStatus === "late" && styles.subStatusLate,
+                subStatus === "ontime" && styles.subStatusOntime,
+              ]}
+            >
+              <Text style={[styles.subStatusText, RTL.text]}>
+                {subStatus === "unknown"
+                  ? "לא ידוע"
+                  : subStatus === "late"
+                    ? "באיחור"
+                    : "בזמן"}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+      {/* Left: 3-dots menu (far left), WhatsApp (if loaned + phone), chevron */}
+      <View style={styles.cardActions}>
+        <TouchableOpacity
+          style={styles.moreBtn}
+          onPress={(e) => {
+            e.stopPropagation();
+            onMorePress();
+          }}
+          hitSlop={8}
+          activeOpacity={0.7}
+        >
+          <MoreVertical size={22} color={iconColor} />
+        </TouchableOpacity>
+        {isLoaned && contactPhone ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.whatsappBtn,
+              pressed && styles.whatsappBtnPressed,
+            ]}
+            onPress={(e) => {
+              e.stopPropagation();
+              onWhatsAppPress();
+            }}
+            hitSlop={8}
+          >
+            <Ionicons name="logo-whatsapp" size={24} color="#25D366" />
+          </Pressable>
+        ) : null}
+        <View style={styles.cardChevronWrap}>
+          <ChevronLeft size={20} color={iconColor} />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 export default function ItemsScreen() {
   const insets = useSafeAreaInsets();
+  const { colorScheme } = useColorScheme();
   const params = useLocalSearchParams<{ tab?: string }>();
+  const isDark = colorScheme === "dark";
+  const placeholderColor = isDark ? SLATE_400 : SLATE_500;
   const [items, setItems] = useState<SupabaseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<"all" | "loans" | "overdue">(
-    params.tab === "loans" ? "loans" : "all"
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+    params.tab === "loans" ? "loaned" : "all"
   );
 
   const load = useCallback(async () => {
@@ -84,85 +291,61 @@ export default function ItemsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     load();
   }, [load]);
 
-  const activeLoans = items.filter((i) => i.status === "loaned");
-  const overdueLoans = items.filter((i) => {
-    if (i.status !== "loaned") return false;
-    const ret = (i as { expected_return_date?: string }).expected_return_date;
-    if (!ret) return false;
-    return new Date(ret) < new Date();
-  });
+  const byStatus =
+    statusFilter === "all"
+      ? items
+      : items.filter((i) => i.status === statusFilter);
 
-  const filtered =
-    activeTab === "loans"
-      ? activeLoans
-      : activeTab === "overdue"
-        ? overdueLoans
-        : items.filter(
-            (i) =>
-              !search.trim() ||
-              i.name.toLowerCase().includes(search.toLowerCase()) ||
-              (i.category &&
-                i.category.toLowerCase().includes(search.toLowerCase())) ||
-              (i.borrower_name &&
-                i.borrower_name.toLowerCase().includes(search.toLowerCase()))
-          );
+  const filtered = byStatus.filter(
+    (i) =>
+      !search.trim() ||
+      i.name.toLowerCase().includes(search.toLowerCase()) ||
+      (i.category &&
+        i.category.toLowerCase().includes(search.toLowerCase())) ||
+      (i.borrower_name &&
+        i.borrower_name.toLowerCase().includes(search.toLowerCase())) ||
+      (i.contact_name &&
+        i.contact_name.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const markAsReturned = useCallback(
+    async (itemId: string) => {
+      try {
+        const { error } = await supabase
+          .from("items")
+          .update({
+            status: "owned",
+            contact_name: null,
+            contact_phone: null,
+            return_date: null,
+            action_date: null,
+          })
+          .eq("id", itemId);
+        if (error) throw error;
+        await load();
+      } catch {
+        Alert.alert("שגיאה", "לא ניתן לעדכן. נסה שוב.");
+      }
+    },
+    [load]
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: SupabaseItem }) => (
-      <TouchableOpacity
-        style={styles.card}
-        activeOpacity={0.85}
-        onPress={() => router.push(`/item/${item.id}`)}
-      >
-        {/* Far right: thumbnail or fallback icon */}
-        <View style={styles.cardThumbWrap}>
-          {item.image_url ? (
-            <Image
-              source={{ uri: item.image_url }}
-              style={styles.cardThumb}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.cardThumbFallback}>
-              <Ionicons name="cube-outline" size={28} color={SLATE_400} />
-            </View>
-          )}
-        </View>
-        {/* Text container: flex-1, right-aligned, margin from image */}
-        <View style={styles.cardContent}>
-          <Text style={[styles.cardName, RTL.text]} numberOfLines={1}>
-            {item.name}
-          </Text>
-          {item.location_name ? (
-            <View style={styles.locationRow}>
-              <Ionicons name="location-outline" size={14} color={SLATE_400} />
-              <Text style={[styles.cardLocation, RTL.text]} numberOfLines={1}>
-                {item.location_name}
-              </Text>
-            </View>
-          ) : null}
-          <View style={[styles.statusChip, item.status === "lost" && styles.statusLost]}>
-            <Text style={[styles.statusText, RTL.text]}>
-              {STATUS_LABELS[item.status] ?? item.status}
-            </Text>
-          </View>
-        </View>
-        {/* Far left: chevron (clickable hint) */}
-        <View style={styles.cardChevronWrap}>
-          <ChevronLeft size={20} color={SLATE_500} />
-        </View>
-      </TouchableOpacity>
+      <ItemCard item={item} onMarkReturned={markAsReturned} />
     ),
-    []
+    [markAsReturned]
   );
 
   const keyExtractor = useCallback((item: SupabaseItem) => item.id, []);
@@ -176,89 +359,80 @@ export default function ItemsScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centered, { paddingTop: insets.top }]}>
+      <View className="flex-1 bg-slate-50 dark:bg-slate-900" style={[styles.container, styles.centered, { paddingTop: insets.top }]}>
         <ActivityIndicator size="large" color={Colors.dark.primary} />
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View className="flex-1 bg-slate-50 dark:bg-slate-900" style={[styles.container, { paddingTop: insets.top }]}>
       {/* Search bar: icon FAR RIGHT, input flex-1 textAlign right */}
       <View style={styles.searchWrap}>
-        <View style={styles.searchRow}>
-          <Ionicons name="search" size={22} color={SLATE_400} style={styles.searchIcon} />
+        <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.searchRow}>
+          <Ionicons name="search" size={22} color={placeholderColor} style={styles.searchIcon} />
           <TextInput
+            className="text-slate-900 dark:text-white"
             style={[styles.searchInput, RTL.input]}
             placeholder={STRINGS.searchPlaceholder}
-            placeholderTextColor={SLATE_400}
+            placeholderTextColor={placeholderColor}
             value={search}
             onChangeText={setSearch}
+            returnKeyType="search"
+            onSubmitEditing={() => Keyboard.dismiss()}
+            blurOnSubmit={true}
           />
         </View>
       </View>
 
-      {/* Filter chips: RTL – הכל first on the right */}
-      <View style={styles.chipsRow}>
-        <Pressable
-          style={[styles.chip, activeTab === "overdue" && styles.chipOverdue]}
-          onPress={() => setActiveTab("overdue")}
-        >
-          <Text
+      {/* Filter chips: horizontal inverted FlatList so "הכל" is far right, RTL */}
+      <FlatList
+        data={[...FILTER_CHIPS].reverse()}
+        keyExtractor={(chip) => chip.id}
+        horizontal
+        inverted
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chipsScrollContent}
+        style={styles.chipsScroll}
+        renderItem={({ item: chip }) => (
+          <Pressable
+            className={statusFilter === chip.id ? (chip.id === "lost" ? "" : "") : "bg-white dark:bg-slate-800 shadow-sm dark:shadow-none"}
             style={[
-              styles.chipText,
-              activeTab === "overdue" && styles.chipTextActive,
-              RTL.text,
+              styles.chip,
+              statusFilter === chip.id &&
+                (chip.id === "lost" ? styles.chipLostActive : styles.chipActive),
             ]}
+            onPress={() => setStatusFilter(chip.id)}
           >
-            {STRINGS.overdueTab}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.chip, activeTab === "loans" && styles.chipActive]}
-          onPress={() => setActiveTab("loans")}
-        >
-          <Text
-            style={[
-              styles.chipText,
-              activeTab === "loans" && styles.chipTextActive,
-              RTL.text,
-            ]}
-          >
-            {STRINGS.activeLoansTab}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.chip, activeTab === "all" && styles.chipActive]}
-          onPress={() => setActiveTab("all")}
-        >
-          <Text
-            style={[
-              styles.chipText,
-              activeTab === "all" && styles.chipTextActive,
-              RTL.text,
-            ]}
-          >
-            הכל
-          </Text>
-        </Pressable>
-      </View>
+            <Text
+              className={statusFilter === chip.id ? "text-white" : "text-slate-900 dark:text-white"}
+              style={[
+                styles.chipText,
+                statusFilter === chip.id && styles.chipTextActive,
+                RTL.text,
+              ]}
+            >
+              {chip.label}
+            </Text>
+          </Pressable>
+        )}
+      />
 
       {/* New Item Button */}
       <View style={styles.addItemBtnWrap}>
         <TouchableOpacity
           onPress={() => router.push({ pathname: "/(tabs)/add-item", params: { mode: "item" } })}
           activeOpacity={0.9}
-          className="bg-slate-800 border border-slate-700 rounded-2xl py-4 flex-row justify-center items-center mb-4 mt-2"
+          className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-700 rounded-2xl py-4 flex-row justify-center items-center mb-4 mt-2"
         >
-          <Text className="text-white font-bold text-lg">הוסף פריט חדש +</Text>
+          <Text className="text-slate-900 dark:text-white font-bold text-lg">הוסף פריט חדש +</Text>
         </TouchableOpacity>
       </View>
 
       {filtered.length === 0 ? (
         <View style={[styles.emptyWrap, listContentContainerStyle]}>
-          <PackageOpen size={64} color={SLATE_400} strokeWidth={1.5} />
-          <Text style={[styles.emptyText, RTL.text]}>אין פריטים עדיין</Text>
+          <PackageOpen size={64} color={placeholderColor} strokeWidth={1.5} />
+          <Text className="text-slate-500 dark:text-slate-400" style={[styles.emptyText, RTL.text]}>אין פריטים עדיין</Text>
         </View>
       ) : (
         <FlatList
@@ -267,6 +441,8 @@ export default function ItemsScreen() {
           keyExtractor={keyExtractor}
           contentContainerStyle={listContentContainerStyle}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -283,7 +459,6 @@ export default function ItemsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
   },
   centered: {
     justifyContent: "center",
@@ -297,7 +472,6 @@ const styles = StyleSheet.create({
   searchRow: {
     flexDirection: "row-reverse",
     alignItems: "center",
-    backgroundColor: SLATE_800,
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -306,20 +480,22 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: Colors.dark.text,
     paddingHorizontal: 10,
     textAlign: "right",
   },
   searchIcon: {
     marginRight: 8,
   },
-  chipsRow: {
+  chipsScroll: {
+    marginBottom: 16,
+    maxHeight: 48,
+  },
+  chipsScrollContent: {
     flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
+    alignItems: "center",
     gap: 8,
     paddingHorizontal: 20,
-    marginBottom: 16,
+    paddingVertical: 4,
   },
   addItemBtnWrap: {
     paddingHorizontal: 20,
@@ -328,17 +504,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: SLATE_800,
   },
   chipActive: {
     backgroundColor: Colors.dark.primary,
   },
-  chipOverdue: {
-    backgroundColor: "#7f1d1d",
+  chipLostActive: {
+    backgroundColor: "rgba(239, 68, 68, 0.5)",
   },
   chipText: {
     fontSize: 14,
-    color: Colors.dark.text,
     fontWeight: "500",
   },
   chipTextActive: {
@@ -347,7 +521,6 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row-reverse",
     alignItems: "center",
-    backgroundColor: SLATE_800,
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
@@ -358,10 +531,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
     marginLeft: 12,
+    position: "relative",
   },
   cardThumb: {
     width: "100%",
     height: "100%",
+  },
+  cardThumbSkeleton: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: SLATE_700,
+    alignItems: "center",
+    justifyContent: "center",
   },
   cardThumbFallback: {
     width: "100%",
@@ -379,7 +559,6 @@ const styles = StyleSheet.create({
   cardName: {
     fontSize: 17,
     fontWeight: "700",
-    color: Colors.dark.text,
     marginBottom: 4,
   },
   locationRow: {
@@ -390,8 +569,29 @@ const styles = StyleSheet.create({
   },
   cardLocation: {
     fontSize: 13,
-    color: SLATE_400,
     flex: 1,
+  },
+  statusRow: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  cardActions: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 4,
+  },
+  moreBtn: {
+    padding: 6,
+    borderRadius: 12,
+  },
+  whatsappBtn: {
+    padding: 6,
+    borderRadius: 12,
+  },
+  whatsappBtnPressed: {
+    opacity: 0.8,
   },
   cardChevronWrap: {
     justifyContent: "center",
@@ -410,13 +610,31 @@ const styles = StyleSheet.create({
     color: Colors.dark.text,
     fontWeight: "500",
   },
+  subStatusChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  subStatusUnknown: {
+    backgroundColor: "rgba(100, 116, 139, 0.4)",
+  },
+  subStatusLate: {
+    backgroundColor: "rgba(239, 68, 68, 0.3)",
+  },
+  subStatusOntime: {
+    backgroundColor: "rgba(34, 197, 94, 0.3)",
+  },
+  subStatusText: {
+    fontSize: 11,
+    color: Colors.dark.text,
+    fontWeight: "600",
+  },
   emptyWrap: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
   emptyText: {
-    color: SLATE_400,
     fontSize: 18,
     marginTop: 16,
     textAlign: "center",

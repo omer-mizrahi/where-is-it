@@ -2,6 +2,7 @@ import { Link, router } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,17 +10,22 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
 
 import { STRINGS } from "@/constants/strings";
 import { Colors, RTL } from "@/constants/theme";
+import { supabase } from "@/lib/supabase";
 
-function handleRegister(_email: string, _password: string) {
-  return Promise.resolve(true);
-}
+const SLATE_800 = "#1e293b";
+const SLATE_400 = "#94a3b8";
+const BLUE_600 = "#2563eb";
 
 export default function RegisterScreen() {
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [gender, setGender] = useState<"זכר" | "נקבה">("זכר");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -27,6 +33,14 @@ export default function RegisterScreen() {
   const [error, setError] = useState("");
 
   const onRegister = async () => {
+    if (!fullName.trim()) {
+      Alert.alert("שגיאה", "נא למלא את שמך המלא");
+      return;
+    }
+    if (!phone.trim()) {
+      Alert.alert("שגיאה", "נא למלא מספר טלפון");
+      return;
+    }
     if (!email.trim() || !password) {
       setError("נא למלא אימייל וסיסמה");
       return;
@@ -38,10 +52,32 @@ export default function RegisterScreen() {
     setLoading(true);
     setError("");
     try {
-      await handleRegister(email, password);
-      router.replace("/(tabs)");
-    } catch {
-      setError("שגיאה בהרשמה");
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+            phone: phone.trim(),
+            gender,
+          },
+        },
+      });
+      if (signUpError) throw signUpError;
+      if (data.session) {
+        router.replace("/(tabs)");
+      } else {
+        Alert.alert(
+          "נשלח אימייל",
+          "נא לאמת את החשבון דרך הקישור שנשלח לאימייל."
+        );
+      }
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: string }).message)
+          : "שגיאה בהרשמה";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -63,6 +99,46 @@ export default function RegisterScreen() {
         </View>
         <Text style={[styles.title, RTL.text]}>{STRINGS.register}</Text>
         {error ? <Text style={[styles.error, RTL.text]}>{error}</Text> : null}
+        <TextInput
+          style={[styles.input, RTL.input]}
+          placeholder="שם מלא"
+          placeholderTextColor={Colors.dark.muted}
+          value={fullName}
+          onChangeText={setFullName}
+          editable={!loading}
+        />
+        <TextInput
+          style={[styles.input, RTL.input]}
+          placeholder="מספר טלפון"
+          placeholderTextColor={Colors.dark.muted}
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
+          editable={!loading}
+        />
+        <View style={styles.genderRow}>
+          {(["זכר", "נקבה"] as const).map((g) => (
+            <TouchableOpacity
+              key={g}
+              onPress={() => setGender(g)}
+              disabled={loading}
+              style={[
+                styles.genderBtn,
+                gender === g ? styles.genderBtnActive : styles.genderBtnInactive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.genderBtnText,
+                  gender === g ? styles.genderBtnTextActive : styles.genderBtnTextInactive,
+                  RTL.text,
+                ]}
+              >
+                {g}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
         <TextInput
           style={[styles.input, RTL.input]}
           placeholder={STRINGS.email}
@@ -148,14 +224,45 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textAlign: "right",
   },
-  input: {
-    backgroundColor: Colors.dark.card,
-    borderRadius: 12,
-    paddingHorizontal: 16,
+  genderRow: {
+    flexDirection: "row-reverse",
+    gap: 12,
+    marginBottom: 16,
+  },
+  genderBtn: {
+    flex: 1,
     paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  genderBtnActive: {
+    backgroundColor: BLUE_600,
+  },
+  genderBtnInactive: {
+    backgroundColor: SLATE_800,
+  },
+  genderBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    textAlign: "right",
+  },
+  genderBtnTextActive: {
+    color: "#fff",
+  },
+  genderBtnTextInactive: {
+    color: SLATE_400,
+  },
+  input: {
+    backgroundColor: SLATE_800,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     fontSize: 16,
     color: Colors.dark.text,
     marginBottom: 16,
+    textAlign: "right",
   },
   btn: {
     backgroundColor: Colors.dark.primary,

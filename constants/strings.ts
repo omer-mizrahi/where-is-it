@@ -19,7 +19,7 @@ export const STRINGS = {
   // Dashboard
   dashboard: "דשבורד ראשי",
   greeting: "שלום",
-  activeLoans: "השאלות פעילות",
+  activeLoans: "השאלות",
   savedParkings: "חניות שמורות",
   totalItems: "סה\"כ פריטים",
   addItem: "הוסף פריט",
@@ -50,7 +50,7 @@ export const STRINGS = {
   expectedReturnDate: "תאריך החזרה צפוי",
   lastSeenWhere: "איפה/מתי נראה לאחרונה?",
   save: "שמור",
-  cancel: "ביטול",
+  cancel: "סגור",
   success: "נשמר בהצלחה",
   copyDetails: "העתק פרטים",
   shareToWhatsApp: "שתף בוואטסאפ",
@@ -81,7 +81,7 @@ export const STRINGS = {
   overdue: "באיחור",
 
   // Search & Locations
-  searchPlaceholder: "חיפוש לפי מיקום, קטגוריה או סטטוס",
+  searchPlaceholder: "חפש לפי שם, קטגוריה, מיקום וכו'",
   savedLocationsTitle: "מיקומים שמורים",
   home: "בית",
   work: "עבודה",

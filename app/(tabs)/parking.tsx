@@ -1,8 +1,10 @@
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Linking from "expo-linking";
+import { useColorScheme } from "nativewind";
 import { Car, Edit3 } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -57,6 +59,9 @@ async function fetchParkingsForUser(): Promise<ParkingRecord[]> {
 
 export default function ParkingScreen() {
   const insets = useSafeAreaInsets();
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const iconColor = isDark ? SLATE_400 : SLATE_700;
   const [parkings, setParkings] = useState<ParkingRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -73,9 +78,11 @@ export default function ParkingScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -111,7 +118,7 @@ export default function ParkingScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: ParkingRecord }) => (
-      <View style={styles.historyCard}>
+      <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.historyCard}>
         {/* Far right: thumbnail or fallback */}
         <View style={styles.historyThumbWrap}>
           {item.image_url ? (
@@ -122,13 +129,13 @@ export default function ParkingScreen() {
             />
           ) : (
             <View style={styles.historyThumbFallback}>
-              <Ionicons name="car-outline" size={28} color={SLATE_400} />
+              <Ionicons name="car-outline" size={28} color={iconColor} />
             </View>
           )}
         </View>
         {/* Center: date, location, notes (right-aligned) */}
         <View style={styles.historyContent}>
-          <Text style={[styles.historyDate, RTL.text]}>
+          <Text className="text-slate-900 dark:text-white" style={[styles.historyDate, RTL.text]}>
             {new Date(item.created_at).toLocaleString("he-IL", {
               dateStyle: "medium",
               timeStyle: "short",
@@ -136,14 +143,14 @@ export default function ParkingScreen() {
           </Text>
           {item.location_name ? (
             <View style={styles.historyLocationRow}>
-              <Ionicons name="location-outline" size={14} color={SLATE_400} />
-              <Text style={[styles.historyLocation, RTL.text]} numberOfLines={1}>
+              <Ionicons name="location-outline" size={14} color={iconColor} />
+              <Text className="text-slate-500 dark:text-slate-400" style={[styles.historyLocation, RTL.text]} numberOfLines={1}>
                 {item.location_name}
               </Text>
             </View>
           ) : null}
           {item.notes ? (
-            <Text style={[styles.historyNotes, RTL.text]} numberOfLines={2}>
+            <Text className="text-slate-500 dark:text-slate-400" style={[styles.historyNotes, RTL.text]} numberOfLines={2}>
               {item.notes}
             </Text>
           ) : null}
@@ -179,21 +186,22 @@ export default function ParkingScreen() {
   const keyExtractor = useCallback((item: ParkingRecord) => item.id, []);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View className="flex-1 bg-slate-50 dark:bg-slate-900" style={[styles.container, { paddingTop: insets.top }]}>
       <FlatList
         ListHeaderComponent={
           <>
             {/* New Parking Button */}
             <TouchableOpacity
+              className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-700"
               style={styles.addParkingBtn}
               onPress={goToAddParking}
               activeOpacity={0.9}
             >
-              <Text style={[styles.addParkingBtnText, RTL.text]}>הוסף חניה חדשה +</Text>
+              <Text className="text-slate-900 dark:text-white" style={[styles.addParkingBtnText, RTL.text]}>הוסף חניה חדשה +</Text>
             </TouchableOpacity>
 
             {/* History section title */}
-            <Text style={[styles.sectionTitle, RTL.text]}>{STRINGS.parkingHistory}</Text>
+            <Text className="text-slate-900 dark:text-white" style={[styles.sectionTitle, RTL.text]}>{STRINGS.parkingHistory}</Text>
           </>
         }
         data={parkings}
@@ -213,8 +221,8 @@ export default function ParkingScreen() {
         }
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
-            <Car size={64} color={SLATE_400} strokeWidth={1.5} />
-            <Text style={[styles.emptyText, RTL.text]}>אין חניות שמורות</Text>
+            <Car size={64} color={iconColor} strokeWidth={1.5} />
+            <Text className="text-slate-500 dark:text-slate-400" style={[styles.emptyText, RTL.text]}>אין חניות שמורות</Text>
           </View>
         }
       />
@@ -225,16 +233,12 @@ export default function ParkingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
   },
   listContent: {
     paddingHorizontal: 20,
     paddingTop: 24,
   },
   addParkingBtn: {
-    backgroundColor: SLATE_800,
-    borderWidth: 1,
-    borderColor: SLATE_700,
     borderRadius: 16,
     paddingVertical: 16,
     flexDirection: "row",
@@ -243,21 +247,18 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   addParkingBtnText: {
-    color: "#fff",
     fontWeight: "700",
     fontSize: 18,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.dark.text,
     marginBottom: 16,
     textAlign: "right",
   },
   historyCard: {
     flexDirection: "row-reverse",
     alignItems: "center",
-    backgroundColor: SLATE_800,
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
@@ -288,7 +289,6 @@ const styles = StyleSheet.create({
   historyDate: {
     fontSize: 15,
     fontWeight: "700",
-    color: Colors.dark.text,
     marginBottom: 4,
   },
   historyLocationRow: {
@@ -299,11 +299,9 @@ const styles = StyleSheet.create({
   },
   historyLocation: {
     fontSize: 13,
-    color: SLATE_400,
   },
   historyNotes: {
     fontSize: 13,
-    color: "#64748b",
   },
   historyActions: {
     flexDirection: "column",
@@ -319,7 +317,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyText: {
-    color: SLATE_400,
     fontSize: 18,
     marginTop: 16,
     textAlign: "center",

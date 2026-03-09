@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useColorScheme } from "nativewind";
+import { useEffect, useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
-  StyleSheet,
   Switch,
   Text,
   View,
@@ -12,287 +13,232 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { STRINGS } from "@/constants/strings";
-import { Colors, RTL } from "@/constants/theme";
+import { RTL } from "@/constants/theme";
+import { supabase } from "@/lib/supabase";
+import type { User } from "@supabase/supabase-js";
 
-const CARD_BG = "#1e293b"; // slate-800
-const CARD_BORDER = "#334155"; // slate-700
 const RED_500 = "#ef4444";
+const SLATE_500 = "#64748b";
+const SLATE_400 = "#94a3b8";
 
-type ThemeMode = "light" | "dark" | "auto";
+type ThemeOption = "כהה" | "בהיר" | "אוטומטי";
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { colorScheme, setColorScheme } = useColorScheme();
+  const [user, setUser] = useState<User | null>(null);
+  const [fullName, setFullName] = useState("משתמש");
+  const [phone, setPhone] = useState("");
   const [notifications, setNotifications] = useState(true);
-  const [theme, setTheme] = useState<ThemeMode>("dark");
+  const [activeTheme, setActiveTheme] = useState<ThemeOption>("אוטומטי");
 
-  const signOut = () => {
+  useEffect(() => {
+    const load = async () => {
+      const {
+        data: { user: u },
+      } = await supabase.auth.getUser();
+      setUser(u ?? null);
+      if (u) {
+        const metadata = u.user_metadata;
+        setFullName(metadata?.full_name?.trim() || "משתמש");
+        setPhone(metadata?.phone || "");
+      }
+    };
+    load();
+  }, []);
+
+  const avatarLetter =
+    fullName && fullName.length > 0
+      ? fullName[0].toUpperCase()
+      : user?.email?.[0]?.toUpperCase() || "מ";
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
     router.replace("/(auth)/login");
   };
 
+  const onPlaceholder = () => {
+    Alert.alert("בפיתוח", "פיצ'ר זה יגיע בקרוב!");
+  };
+
+  const isThemeActive = (option: ThemeOption) => activeTheme === option;
+  const iconColor = colorScheme === "dark" ? SLATE_400 : SLATE_500;
+
   return (
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={[
-        styles.content,
-        { paddingTop: Math.max(insets.top, 20) },
-      ]}
+      className="flex-1 bg-slate-50 dark:bg-slate-900"
+      contentContainerStyle={{
+        paddingHorizontal: 20,
+        paddingBottom: 40,
+        paddingTop: Math.max(insets.top, 20),
+      }}
       showsVerticalScrollIndicator={false}
     >
-      <View style={styles.header}>
-        <Text style={[styles.screenTitle, RTL.text]}>{STRINGS.profile}</Text>
-        <View style={styles.avatar}>
-          <Text style={[styles.avatarText, RTL.text]}>מ</Text>
+      <View className="items-center mb-8">
+        <Text
+          className="text-2xl font-bold text-slate-900 dark:text-white mb-5 text-right w-full"
+          style={RTL.text}
+        >
+          {STRINGS.profile}
+        </Text>
+        <View className="w-20 h-20 rounded-full bg-blue-600 items-center justify-center">
+          <Text
+            className="text-3xl font-bold text-white"
+            style={RTL.text}
+          >
+            {avatarLetter}
+          </Text>
         </View>
-        <Text style={[styles.userName, RTL.text]}>משתמש</Text>
-        <Text style={[styles.userEmail, RTL.text]}>user@example.com</Text>
+        <Text
+          className="text-xl font-bold text-slate-900 dark:text-white mt-3 text-right"
+          style={RTL.text}
+        >
+          {fullName}
+        </Text>
+        <Text
+          className="text-sm text-slate-500 dark:text-slate-400 mt-1 text-right"
+          style={RTL.text}
+        >
+          {user?.email ?? ""}
+        </Text>
       </View>
 
       {/* Card 1: Account & preferences */}
-      <View style={styles.card}>
+      <View className="bg-white dark:bg-slate-800 rounded-2xl mb-5 overflow-hidden shadow-sm dark:shadow-none px-5">
         <Pressable
-          style={({ pressed }) => [
-            styles.row,
-            styles.rowBorder,
-            pressed && styles.rowPressed,
-          ]}
+          className="flex-row items-center justify-between py-5 border-b border-slate-200 dark:border-slate-700 active:opacity-90"
+          onPress={onPlaceholder}
+          style={{ flexDirection: "row-reverse" }}
         >
-          <View style={styles.rowRTL}>
-            <View style={styles.iconTextGroup}>
-              <Ionicons name="person-outline" size={22} color={Colors.dark.icon} />
-              <Text style={[styles.rowText, RTL.text]}>{STRINGS.editProfile}</Text>
-            </View>
-            <Ionicons name="chevron-back" size={20} color={Colors.dark.muted} />
+          <View className="flex-row-reverse items-center flex-1 gap-3" style={{ flexDirection: "row-reverse" }}>
+            <Ionicons name="person-outline" size={22} color={iconColor} />
+            <Text className="flex-1 text-base font-medium text-slate-900 dark:text-white text-right" style={RTL.text}>
+              {STRINGS.editProfile}
+            </Text>
           </View>
+          <Ionicons name="chevron-back" size={20} color={iconColor} />
         </Pressable>
 
-        <View style={[styles.row, styles.rowBorder]}>
-          <View style={styles.rowRTL}>
-            <View style={styles.iconTextGroup}>
-              <Ionicons name="notifications-outline" size={22} color={Colors.dark.icon} />
-              <Text style={[styles.rowText, RTL.text]}>{STRINGS.notifications}</Text>
-            </View>
-            <Switch
-              value={notifications}
-              onValueChange={setNotifications}
-              trackColor={{ false: "#475569", true: Colors.dark.primary }}
-              thumbColor="#fff"
-            />
+        <Pressable
+          className="flex-row items-center justify-between py-5 border-b border-slate-200 dark:border-slate-700 active:opacity-90"
+          onPress={onPlaceholder}
+          style={{ flexDirection: "row-reverse" }}
+        >
+          <View className="flex-row-reverse items-center flex-1 gap-3" style={{ flexDirection: "row-reverse" }}>
+            <Ionicons name="notifications-outline" size={22} color={iconColor} />
+            <Text className="flex-1 text-base font-medium text-slate-900 dark:text-white text-right" style={RTL.text}>
+              {STRINGS.notifications}
+            </Text>
           </View>
-        </View>
+          <Switch
+            value={notifications}
+            onValueChange={setNotifications}
+            trackColor={{ false: "#475569", true: "#3B82F6" }}
+            thumbColor="#fff"
+          />
+        </Pressable>
 
-        <View style={styles.row}>
-          <View style={styles.rowRTL}>
-            <View style={styles.themeBlock}>
-              <View style={[styles.themeChips, styles.themeChipsRTL]}>
-                {(["dark", "light", "auto"] as const).map((t) => (
-                  <Pressable
-                    key={t}
-                    style={[styles.themeChip, theme === t && styles.themeChipActive]}
-                    onPress={() => setTheme(t)}
-                  >
-                    <Text
-                      style={[
-                        styles.themeChipText,
-                        theme === t && styles.themeChipTextActive,
-                        RTL.text,
-                      ]}
-                    >
-                      {t === "dark"
-                        ? STRINGS.dark
-                        : t === "light"
-                          ? STRINGS.light
-                          : STRINGS.auto}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              <Text style={[styles.rowText, RTL.text]}>{STRINGS.theme}</Text>
-              <Ionicons name="moon-outline" size={22} color={Colors.dark.icon} />
-            </View>
+        {/* Theme row: strict RTL - right: label + icon, left: 3 buttons */}
+        <View
+          className="flex-row justify-between items-center w-full py-5"
+          style={{ flexDirection: "row-reverse" }}
+        >
+          <View className="flex-row items-center gap-2" style={{ flexDirection: "row-reverse" }}>
+            <Text className="text-base font-medium text-slate-900 dark:text-white text-right" style={RTL.text}>
+              {STRINGS.theme}
+            </Text>
+            <Ionicons name="moon-outline" size={22} color={iconColor} />
+          </View>
+          <View className="flex-row gap-2" style={{ flexDirection: "row-reverse" }}>
+            <Pressable
+              onPress={() => {
+                setActiveTheme("אוטומטי");
+                setColorScheme("system");
+              }}
+              className={`px-3 py-2 rounded-xl ${isThemeActive("אוטומטי") ? "bg-blue-600" : ""}`}
+            >
+              <Text
+                className={`text-sm text-right ${isThemeActive("אוטומטי") ? "text-white" : "text-slate-500 dark:text-slate-400"}`}
+                style={RTL.text}
+              >
+                אוטומטי
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setActiveTheme("בהיר");
+                setColorScheme("light");
+              }}
+              className={`px-3 py-2 rounded-xl ${isThemeActive("בהיר") ? "bg-blue-600" : ""}`}
+            >
+              <Text
+                className={`text-sm text-right ${isThemeActive("בהיר") ? "text-white" : "text-slate-500 dark:text-slate-400"}`}
+                style={RTL.text}
+              >
+                בהיר
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setActiveTheme("כהה");
+                setColorScheme("dark");
+              }}
+              className={`px-3 py-2 rounded-xl ${isThemeActive("כהה") ? "bg-blue-600" : ""}`}
+            >
+              <Text
+                className={`text-sm text-right ${isThemeActive("כהה") ? "text-white" : "text-slate-500 dark:text-slate-400"}`}
+                style={RTL.text}
+              >
+                כהה
+              </Text>
+            </Pressable>
           </View>
         </View>
       </View>
 
       {/* Card 2: Data & privacy */}
-      <View style={styles.card}>
+      <View className="bg-white dark:bg-slate-800 rounded-2xl mb-5 overflow-hidden shadow-sm dark:shadow-none px-5">
         <Pressable
-          style={({ pressed }) => [
-            styles.row,
-            styles.rowBorder,
-            pressed && styles.rowPressed,
-          ]}
+          className="flex-row items-center justify-between py-5 border-b border-slate-200 dark:border-slate-700 active:opacity-90"
+          onPress={onPlaceholder}
+          style={{ flexDirection: "row-reverse" }}
         >
-          <View style={styles.rowRTL}>
-            <View style={styles.iconTextGroup}>
-              <Ionicons name="download-outline" size={22} color={Colors.dark.icon} />
-              <Text style={[styles.rowText, RTL.text]}>{STRINGS.exportData}</Text>
-            </View>
-            <Ionicons name="chevron-back" size={20} color={Colors.dark.muted} />
+          <View className="flex-row-reverse items-center flex-1 gap-3" style={{ flexDirection: "row-reverse" }}>
+            <Ionicons name="download-outline" size={22} color={iconColor} />
+            <Text className="flex-1 text-base font-medium text-slate-900 dark:text-white text-right" style={RTL.text}>
+              {STRINGS.exportData}
+            </Text>
           </View>
+          <Ionicons name="chevron-back" size={20} color={iconColor} />
         </Pressable>
 
         <Pressable
-          style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+          className="flex-row items-center justify-between py-5 active:opacity-90"
+          onPress={onPlaceholder}
+          style={{ flexDirection: "row-reverse" }}
         >
-          <View style={styles.rowRTL}>
-            <View style={styles.iconTextGroup}>
-              <Ionicons name="shield-outline" size={22} color={Colors.dark.icon} />
-              <Text style={[styles.rowText, RTL.text]}>{STRINGS.privacy}</Text>
-            </View>
-            <Ionicons name="chevron-back" size={20} color={Colors.dark.muted} />
+          <View className="flex-row-reverse items-center flex-1 gap-3" style={{ flexDirection: "row-reverse" }}>
+            <Ionicons name="shield-outline" size={22} color={iconColor} />
+            <Text className="flex-1 text-base font-medium text-slate-900 dark:text-white text-right" style={RTL.text}>
+              {STRINGS.privacy}
+            </Text>
           </View>
+          <Ionicons name="chevron-back" size={20} color={iconColor} />
         </Pressable>
       </View>
 
-      {/* Logout: icon right, text left of it, danger red */}
+      {/* Logout */}
       <Pressable
-        style={({ pressed }) => [
-          styles.signOutBtn,
-          pressed && styles.signOutBtnPressed,
-        ]}
+        className="py-4 mt-3 active:opacity-80"
         onPress={signOut}
       >
-        <View style={styles.signOutRow}>
+        <View className="flex-row-reverse items-center justify-center gap-2" style={{ flexDirection: "row-reverse" }}>
           <Ionicons name="log-out-outline" size={22} color={RED_500} />
-          <Text style={[styles.signOutText, RTL.text]}>{STRINGS.signOut}</Text>
+          <Text className="text-base font-semibold text-right" style={[RTL.text, { color: RED_500 }]}>
+            {STRINGS.signOut}
+          </Text>
         </View>
       </Pressable>
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  header: {
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  screenTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: Colors.dark.text,
-    marginBottom: 20,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.dark.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
-    fontSize: 32,
-    color: "#fff",
-    fontWeight: "700",
-  },
-  userName: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: Colors.dark.text,
-    marginTop: 12,
-  },
-  userEmail: {
-    fontSize: 14,
-    color: Colors.dark.muted,
-    marginTop: 4,
-  },
-  card: {
-    backgroundColor: CARD_BG,
-    borderRadius: 16,
-    marginBottom: 20,
-    overflow: "hidden",
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 4,
-  },
-  rowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: CARD_BORDER,
-  },
-  rowPressed: {
-    backgroundColor: "rgba(255,255,255,0.05)",
-  },
-  /** RTL row: far right = first in group, far left = last. Use row-reverse so icon (right) then text then action (left). */
-  rowRTL: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    flex: 1,
-    gap: 12,
-  },
-  /** Icon far right, text right of icon (so text then icon in RTL order). */
-  iconTextGroup: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    flex: 1,
-    gap: 12,
-  },
-  rowText: {
-    flex: 1,
-    fontSize: 16,
-    color: Colors.dark.text,
-    fontWeight: "500",
-    textAlign: "right",
-  },
-  themeBlock: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    flex: 1,
-    gap: 12,
-  },
-  themeChips: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  themeChipsRTL: {
-    flexDirection: "row-reverse",
-  },
-  themeChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: Colors.dark.background,
-  },
-  themeChipActive: {
-    backgroundColor: Colors.dark.primary,
-  },
-  themeChipText: {
-    fontSize: 12,
-    color: Colors.dark.text,
-    textAlign: "right",
-  },
-  themeChipTextActive: {
-    color: "#fff",
-  },
-  signOutBtn: {
-    paddingVertical: 16,
-    marginTop: 12,
-  },
-  signOutBtnPressed: {
-    opacity: 0.8,
-  },
-  signOutRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-  },
-  signOutText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: RED_500,
-    textAlign: "right",
-  },
-});

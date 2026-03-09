@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { Box, Edit3, FileText, MapPin, Tag } from "lucide-react-native";
+import { useColorScheme } from "nativewind";
+import { Box, Check, Edit3, FileText, MapPin, Tag } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -10,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,6 +24,24 @@ const SLATE_800 = "#1e293b";
 const SLATE_900 = "#0f172a";
 const SLATE_400 = "#94a3b8";
 const SLATE_500 = "#64748b";
+const GREEN_500 = "#22c55e";
+
+/** Date-only: true if return date is strictly before today. */
+function checkIsLate(returnDateString: string | null | undefined): boolean {
+  if (!returnDateString) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const returnDate = new Date(returnDateString);
+  returnDate.setHours(0, 0, 0, 0);
+  return returnDate < today;
+}
+
+function getLoanBadgeLabel(
+  returnDate: string | null | undefined
+): "לא ידוע" | "באיחור" | "בזמן" {
+  if (returnDate == null || returnDate === "") return "לא ידוע";
+  return checkIsLate(returnDate) ? "באיחור" : "בזמן";
+}
 
 interface ItemDetails {
   id: string;
@@ -33,8 +53,12 @@ interface ItemDetails {
   status: string;
   image_url: string | null;
   borrower_name: string | null;
-  last_seen_notes: string | null;
+  contact_name?: string | null;
+  contact_phone?: string | null;
+  return_date?: string | null;
+  action_date?: string | null;
   loan_date?: string;
+  last_seen_notes: string | null;
   created_at: string;
 }
 
@@ -48,9 +72,13 @@ const STATUS_LABELS: Record<string, string> = {
 export default function ItemDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const iconColor = isDark ? SLATE_400 : SLATE_500;
   const [item, setItem] = useState<ItemDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [markingReturned, setMarkingReturned] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -104,9 +132,32 @@ export default function ItemDetailsScreen() {
     router.push({ pathname: "/(tabs)/add-item", params: { mode: "item", id: item.id } });
   };
 
+  const handleMarkReturned = useCallback(async () => {
+    if (!id) return;
+    setMarkingReturned(true);
+    try {
+      const { error } = await supabase
+        .from("items")
+        .update({
+          status: "owned",
+          contact_name: null,
+          contact_phone: null,
+          return_date: null,
+          action_date: null,
+        })
+        .eq("id", id);
+      if (error) throw error;
+      await load();
+    } catch {
+      Alert.alert("שגיאה", "לא ניתן לעדכן. נסה שוב.");
+    } finally {
+      setMarkingReturned(false);
+    }
+  }, [id, load]);
+
   if (loading) {
     return (
-      <View style={[styles.loadingWrap, { paddingTop: insets.top }]}>
+      <View className="flex-1 bg-slate-50 dark:bg-slate-900" style={[styles.loadingWrap, { paddingTop: insets.top }]}>
         <ActivityIndicator size="large" color={Colors.dark.primary} />
       </View>
     );
@@ -114,10 +165,10 @@ export default function ItemDetailsScreen() {
 
   if (!item) {
     return (
-      <View style={[styles.loadingWrap, { paddingTop: insets.top }]}>
-        <Text style={[styles.errorText, RTL.text]}>הפריט לא נמצא</Text>
+      <View className="flex-1 bg-slate-50 dark:bg-slate-900" style={[styles.loadingWrap, { paddingTop: insets.top }]}>
+        <Text className="text-slate-500 dark:text-slate-400" style={[styles.errorText, RTL.text]}>הפריט לא נמצא</Text>
         <Pressable style={styles.backBtn} onPress={handleBack}>
-          <Ionicons name="chevron-forward" size={24} color="#fff" />
+          <Ionicons name="chevron-forward" size={24} color={isDark ? "#fff" : "#0f172a"} />
         </Pressable>
       </View>
     );
@@ -126,123 +177,156 @@ export default function ItemDetailsScreen() {
   const isLoaned = item.status === "loaned";
 
   return (
-    <View style={styles.container}>
-      {/* Transparent header overlay at top */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        {/* Far right: back button (RTL) */}
-        <Pressable
-          style={styles.headerBtn}
-          onPress={handleBack}
-          hitSlop={12}
-        >
-          <Ionicons name="chevron-forward" size={28} color="#fff" />
-        </Pressable>
-        {/* Far left: edit + delete actions */}
-        <View style={styles.headerActions}>
-          <Pressable
-            style={styles.headerActionBtn}
-            onPress={handleEdit}
-            hitSlop={12}
-          >
+    <ScrollView
+      className="flex-1 bg-slate-50 dark:bg-slate-900"
+      style={{ paddingTop: insets.top }}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Clean header bar */}
+      <View className="flex-row justify-between items-center px-4 py-2" style={{ flexDirection: "row-reverse" }}>
+        <View className="flex-row gap-2" style={{ flexDirection: "row-reverse" }}>
+          <Pressable onPress={handleEdit} hitSlop={12} className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800">
             <Edit3 size={22} color="#3b82f6" />
           </Pressable>
           <Pressable
-            style={styles.headerActionBtn}
             onPress={handleDelete}
             hitSlop={12}
             disabled={deleting}
+            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
           >
             <Ionicons name="trash-outline" size={22} color="#ef4444" />
           </Pressable>
         </View>
+        <Pressable onPress={handleBack} hitSlop={12} className="p-2">
+          <Ionicons name="chevron-forward" size={28} color={isDark ? "#fff" : "#0f172a"} />
+        </Pressable>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Hero image */}
-        {item.image_url ? (
-          <Image
-            source={{ uri: item.image_url }}
-            style={styles.heroImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={styles.heroPlaceholder}>
-            <Box size={80} color={SLATE_500} strokeWidth={1.5} />
-            <Pressable style={styles.heroAddPhotoBtn}>
-              <Text style={[styles.heroAddPhotoText, RTL.text]}>הוסף תמונה</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {/* Item header */}
-        <View style={styles.itemHeader}>
-          <Text style={[styles.itemName, RTL.text]}>{item.name}</Text>
-          <View style={[styles.statusChip, item.status === "lost" && styles.statusLost]}>
-            <Text style={[styles.statusText, RTL.text]}>
-              {STATUS_LABELS[item.status] ?? item.status}
-            </Text>
-          </View>
+      {/* Title & Status */}
+      <View className="px-4 mt-2 mb-2" style={{ alignItems: "flex-end" }}>
+        <Text className="text-slate-900 dark:text-white text-3xl font-bold text-right" style={RTL.text}>
+          {item.name}
+        </Text>
+        <View
+          className={`mt-2 px-3 py-1.5 rounded-2xl ${item.status === "lost" ? "bg-red-500/20" : "bg-blue-500/20"}`}
+        >
+          <Text className="text-slate-900 dark:text-white text-sm font-semibold text-right" style={RTL.text}>
+            {STATUS_LABELS[item.status] ?? item.status}
+          </Text>
         </View>
+      </View>
 
-        {/* Details list (RTL: icon right, label & value next) */}
-        <View style={styles.detailsSection}>
+      {/* Image below title - smaller & elegant */}
+      {item.image_url ? (
+        <Image
+          source={{ uri: item.image_url }}
+          className="w-full h-56 rounded-3xl mt-4 mb-6"
+          resizeMode="cover"
+          style={styles.itemImage}
+        />
+      ) : (
+        <View className="h-40 rounded-3xl mt-4 mb-6 bg-white dark:bg-slate-800 shadow-sm dark:shadow-none items-center justify-center" style={styles.itemImagePlaceholder}>
+          <Box size={48} color={iconColor} strokeWidth={1.5} />
+          <Text className="text-slate-500 dark:text-slate-400 text-sm mt-2" style={RTL.text}>
+            אין תמונה
+          </Text>
+        </View>
+      )}
+
+      {/* Details list (RTL: icon right, label & value next) */}
+      <View style={styles.detailsSection}>
           {item.location_name ? (
-            <View style={styles.detailRow}>
-              <MapPin size={20} color={SLATE_400} style={styles.detailIcon} />
-              <Text style={[styles.detailLabel, RTL.text]}>{STRINGS.location}</Text>
-              <Text style={[styles.detailValue, RTL.text]}>{item.location_name}</Text>
+            <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.detailRow}>
+              <MapPin size={20} color={iconColor} style={styles.detailIcon} />
+              <Text className="text-slate-500 dark:text-slate-400" style={[styles.detailLabel, RTL.text]}>{STRINGS.location}</Text>
+              <Text className="text-slate-900 dark:text-white" style={[styles.detailValue, RTL.text]}>{item.location_name}</Text>
             </View>
           ) : null}
           {item.category ? (
-            <View style={styles.detailRow}>
-              <Tag size={20} color={SLATE_400} style={styles.detailIcon} />
-              <Text style={[styles.detailLabel, RTL.text]}>{STRINGS.category}</Text>
-              <Text style={[styles.detailValue, RTL.text]}>{item.category}</Text>
+            <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.detailRow}>
+              <Tag size={20} color={iconColor} style={styles.detailIcon} />
+              <Text className="text-slate-500 dark:text-slate-400" style={[styles.detailLabel, RTL.text]}>{STRINGS.category}</Text>
+              <Text className="text-slate-900 dark:text-white" style={[styles.detailValue, RTL.text]}>{item.category}</Text>
             </View>
           ) : null}
           {item.description ? (
-            <View style={styles.detailRow}>
-              <FileText size={20} color={SLATE_400} style={styles.detailIcon} />
-              <Text style={[styles.detailLabel, RTL.text]}>{STRINGS.description}</Text>
-              <Text style={[styles.detailValue, styles.detailValueMultiline, RTL.text]}>
+            <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.detailRow}>
+              <FileText size={20} color={iconColor} style={styles.detailIcon} />
+              <Text className="text-slate-500 dark:text-slate-400" style={[styles.detailLabel, RTL.text]}>{STRINGS.description}</Text>
+              <Text className="text-slate-900 dark:text-white" style={[styles.detailValue, styles.detailValueMultiline, RTL.text]}>
                 {item.description}
               </Text>
             </View>
           ) : null}
         </View>
 
-        {/* Loaned section */}
-        {isLoaned && (item.borrower_name || item.loan_date) && (
-          <View style={styles.loanedCard}>
-            <Text style={[styles.loanedTitle, RTL.text]}>הושאל ל:</Text>
-            {item.borrower_name ? (
-              <Text style={[styles.loanedValue, RTL.text]}>{item.borrower_name}</Text>
-            ) : null}
-            {item.loan_date ? (
-              <Text style={[styles.loanedDate, RTL.text]}>
-                {STRINGS.loanDate}: {new Date(item.loan_date).toLocaleDateString("he-IL")}
+        {/* Loaned section (פרטי השאלה) */}
+        {isLoaned && (
+          <View className="border border-slate-200 dark:border-slate-700" style={styles.loanedCard}>
+            <Text className="text-slate-500 dark:text-slate-400" style={[styles.loanedTitle, RTL.text]}>פרטי השאלה</Text>
+            {(item.contact_name ?? item.borrower_name) ? (
+              <Text className="text-slate-900 dark:text-white" style={[styles.loanedValue, RTL.text]}>
+                {item.contact_name ?? item.borrower_name}
               </Text>
             ) : null}
+            {(item.action_date ?? item.loan_date) ? (
+              <Text className="text-slate-500 dark:text-slate-400" style={[styles.loanedDate, RTL.text]}>
+                {STRINGS.loanDate}:{" "}
+                {new Date(
+                  (item.action_date ?? item.loan_date) as string
+                ).toLocaleDateString("he-IL")}
+              </Text>
+            ) : null}
+            {item.return_date ? (
+              <Text className="text-slate-500 dark:text-slate-400" style={[styles.loanedDate, RTL.text]}>
+                תאריך החזרה צפוי:{" "}
+                {new Date(item.return_date).toLocaleDateString("he-IL")}
+              </Text>
+            ) : null}
+            <View style={styles.loanedBadgeRow}>
+              <View
+                style={[
+                  styles.loanedBadge,
+                  getLoanBadgeLabel(item.return_date) === "באיחור" &&
+                    styles.loanedBadgeLate,
+                  getLoanBadgeLabel(item.return_date) === "בזמן" &&
+                    styles.loanedBadgeOntime,
+                ]}
+              >
+                <Text className="text-slate-900 dark:text-white" style={[styles.loanedBadgeText, RTL.text]}>
+                  {getLoanBadgeLabel(item.return_date)}
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.markReturnedButton, markingReturned && styles.markReturnedButtonDisabled]}
+              onPress={handleMarkReturned}
+              disabled={markingReturned}
+              activeOpacity={0.85}
+            >
+              {markingReturned ? (
+                <ActivityIndicator size="small" color={GREEN_500} />
+              ) : (
+                <Check size={20} color={GREEN_500} style={styles.markReturnedIcon} />
+              )}
+              <Text className="text-slate-900 dark:text-white" style={[styles.markReturnedButtonText, RTL.text]}>
+                הפריט התקבל בחזרה
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
-      </ScrollView>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   loadingWrap: {
     flex: 1,
-    backgroundColor: SLATE_900,
     justifyContent: "center",
     alignItems: "center",
   },
   errorText: {
-    color: SLATE_400,
     fontSize: 18,
   },
   backBtn: {
@@ -250,91 +334,25 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: SLATE_900,
   },
-  header: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    flexDirection: "row-reverse",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  headerBtn: {
-    padding: 8,
-  },
-  headerActions: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    gap: 8,
-  },
-  headerActionBtn: {
-    padding: 8,
-    borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.7)",
-  },
-  heroImage: {
+  itemImage: {
     width: "100%",
-    height: 320,
-    backgroundColor: SLATE_800,
-  },
-  heroPlaceholder: {
-    width: "100%",
-    height: 320,
-    backgroundColor: SLATE_800,
+    height: 224,
     borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
+    marginTop: 16,
+    marginBottom: 24,
   },
-  heroAddPhotoBtn: {
-    marginTop: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.8)",
-  },
-  heroAddPhotoText: {
-    color: "#e5e7eb",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  scroll: {
-    flex: 1,
-    backgroundColor: SLATE_900,
+  itemImagePlaceholder: {
+    width: "100%",
+    height: 160,
+    borderRadius: 24,
+    marginTop: 16,
+    marginBottom: 24,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 40,
-  },
-  itemHeader: {
-    marginBottom: 24,
-    alignItems: "flex-end",
-  },
-  itemName: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: Colors.dark.text,
-    marginBottom: 8,
-  },
-  statusChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: "rgba(59, 130, 246, 0.2)",
-  },
-  statusLost: {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
-  },
-  statusText: {
-    fontSize: 14,
-    color: Colors.dark.text,
-    fontWeight: "600",
   },
   detailsSection: {
     gap: 16,
@@ -342,7 +360,6 @@ const styles = StyleSheet.create({
   detailRow: {
     flexDirection: "row-reverse",
     alignItems: "flex-start",
-    backgroundColor: SLATE_800,
     borderRadius: 12,
     padding: 14,
     gap: 10,
@@ -352,14 +369,12 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 12,
-    color: SLATE_400,
     fontWeight: "500",
     marginTop: 2,
   },
   detailValue: {
     flex: 1,
     fontSize: 16,
-    color: Colors.dark.text,
     textAlign: "right",
   },
   detailValueMultiline: {
@@ -375,18 +390,58 @@ const styles = StyleSheet.create({
   },
   loanedTitle: {
     fontSize: 14,
-    color: SLATE_400,
     marginBottom: 6,
     fontWeight: "600",
   },
   loanedValue: {
     fontSize: 18,
     fontWeight: "700",
-    color: Colors.dark.text,
     marginBottom: 4,
   },
   loanedDate: {
     fontSize: 14,
-    color: SLATE_400,
+  },
+  loanedBadgeRow: {
+    flexDirection: "row-reverse",
+    marginTop: 10,
+    marginBottom: 14,
+  },
+  loanedBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: "rgba(100, 116, 139, 0.4)",
+  },
+  loanedBadgeLate: {
+    backgroundColor: "rgba(239, 68, 68, 0.3)",
+  },
+  loanedBadgeOntime: {
+    backgroundColor: "rgba(34, 197, 94, 0.3)",
+  },
+  loanedBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  markReturnedButton: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.4)",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  markReturnedButtonDisabled: {
+    opacity: 0.7,
+  },
+  markReturnedIcon: {
+    marginLeft: 4,
+  },
+  markReturnedButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

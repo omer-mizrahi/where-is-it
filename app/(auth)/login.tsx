@@ -10,6 +10,7 @@ import {
   ScrollView,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -25,15 +26,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isLogin, setIsLogin] = useState(true);
   const [passwordVisible, setPasswordVisible] = useState(false);
-
-  const subtitle = isLogin ? "התחבר לחשבון שלך" : "צור חשבון חדש";
-  const primaryLabel = isLogin ? "התחבר ->" : "הרשם ->";
-  const togglePrompt = isLogin
-    ? "אין לך חשבון? צור חשבון"
-    : "כבר יש לך חשבון? התחבר";
-  const toggleAction = isLogin ? "צור חשבון" : "התחבר";
 
   const handleSubmit = async () => {
     const trimmedEmail = email.trim();
@@ -43,28 +36,12 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      if (isLogin) {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: trimmedEmail,
-          password,
-        });
-        if (error) throw error;
-        router.replace("/(tabs)");
-      } else {
-        const { data, error } = await supabase.auth.signUp({
-          email: trimmedEmail,
-          password,
-        });
-        if (error) throw error;
-        if (data.session) {
-          router.replace("/(tabs)");
-        } else {
-          Alert.alert(
-            "נשלח אימייל",
-            "נא לאמת את החשבון דרך הקישור שנשלח לאימייל."
-          );
-        }
-      }
+      const { error } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
+      if (error) throw error;
+      router.replace("/(tabs)");
     } catch (err: unknown) {
       const message =
         err && typeof err === "object" && "message" in err
@@ -108,7 +85,7 @@ export default function LoginScreen() {
             className="text-slate-400 text-center text-base mb-8"
             style={{ color: SLATE_400, textAlign: "center" }}
           >
-            {subtitle}
+            התחבר לחשבון שלך
           </Text>
 
           {/* Email */}
@@ -207,24 +184,33 @@ export default function LoginScreen() {
                 className="text-white font-bold text-lg text-center"
                 style={{ color: "#fff", fontWeight: "700", fontSize: 18 }}
               >
-                {primaryLabel}
+                התחבר
               </Text>
             )}
           </Pressable>
 
-          {/* Toggle mode */}
-          <Pressable
-            onPress={() => setIsLogin((v) => !v)}
-            disabled={loading}
-            style={{ marginTop: 24, alignItems: "center" }}
+          {/* New user sign up */}
+          <View
+            style={{
+              marginTop: 24,
+              alignItems: "center",
+              flexDirection: "row-reverse",
+              justifyContent: "center",
+              gap: 6,
+            }}
           >
-            <Text style={{ textAlign: "center", fontSize: 16, color: SLATE_400 }}>
-              {isLogin ? "אין לך חשבון? " : "כבר יש לך חשבון? "}
-              <Text style={{ color: "#3b82f6", fontWeight: "600" }}>
-                {toggleAction}
-              </Text>
+            <Text style={{ textAlign: "right", fontSize: 16, color: SLATE_400 }}>
+              אין לך חשבון?
             </Text>
-          </Pressable>
+            <TouchableOpacity
+              onPress={() => router.push("/(auth)/register")}
+              disabled={loading}
+            >
+              <Text style={{ color: "#3b82f6", fontWeight: "600", fontSize: 16 }}>
+                צור חשבון
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Spacer to push demo box to bottom */}
           <View style={{ flex: 1, minHeight: 32 }} />

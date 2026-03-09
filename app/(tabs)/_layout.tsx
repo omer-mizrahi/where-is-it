@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
 import * as Haptics from "expo-haptics";
 import { Tabs } from "expo-router";
+import { useColorScheme } from "nativewind";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 
 import { HapticTab } from "@/components/haptic-tab";
@@ -10,6 +11,8 @@ import { Colors } from "@/constants/theme";
 
 const FAB_SIZE = 64;
 const FAB_PROTRUDE = 22;
+const PRIMARY_BLUE = "#2563eb";
+const SLATE_500 = "#64748b";
 
 function CenterAddTabButton(props: BottomTabBarButtonProps) {
   return (
@@ -34,21 +37,27 @@ function CenterAddTabButton(props: BottomTabBarButtonProps) {
 }
 
 export default function TabLayout() {
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const headerBg = isDark ? "#0f172a" : "#ffffff";
+  const tabBarBg = isDark ? "#1e293b" : "#ffffff";
+  const headerTint = isDark ? "#ffffff" : "#0f172a";
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.dark.primary,
-        tabBarInactiveTintColor: Colors.dark.tabIconDefault,
+        tabBarActiveTintColor: PRIMARY_BLUE,
+        tabBarInactiveTintColor: SLATE_500,
         tabBarStyle: {
-          backgroundColor: Colors.dark.card,
+          backgroundColor: tabBarBg,
           borderTopWidth: 0,
           elevation: 0,
           shadowOpacity: 0,
           height: 56 + FAB_PROTRUDE,
         },
         tabBarLabelStyle: { fontSize: 11 },
-        headerStyle: { backgroundColor: Colors.dark.background },
-        headerTintColor: Colors.dark.text,
+        headerStyle: { backgroundColor: headerBg },
+        headerTintColor: headerTint,
         headerShadowVisible: false,
         tabBarButton: HapticTab,
       }}
