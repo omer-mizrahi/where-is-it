@@ -440,8 +440,12 @@ export default function AddItemScreen() {
           }
 
           const savedAt = new Date().toLocaleString("he-IL", {
-            dateStyle: "medium",
-            timeStyle: "short",
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
           });
           setLastSavedItem({
             name: data.name.trim(),

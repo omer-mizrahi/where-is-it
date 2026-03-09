@@ -49,6 +49,15 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="recent-activity"
+          options={{
+            headerShown: true,
+            title: "כל הפעילויות",
+            headerBackTitle: "חזור",
+            headerTintColor: "#2563eb",
+          }}
+        />
         <Stack.Screen name="modal" options={{ presentation: "modal" }} />
       </Stack>
     </ThemeProvider>

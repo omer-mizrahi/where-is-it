@@ -3,13 +3,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Linking from "expo-linking";
 import { useColorScheme } from "nativewind";
-import { Car, Edit3 } from "lucide-react-native";
+import { Car, ChevronLeft } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import {
-  Alert,
   FlatList,
   Image,
-  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -93,94 +91,73 @@ export default function ParkingScreen() {
     router.push({ pathname: "/(tabs)/add-item", params: { mode: "parking" } });
   };
 
-  const navigateToCar = (record: ParkingRecord) => {
+  const navigateToCar = useCallback((record: ParkingRecord) => {
     Linking.openURL(getMapLink(record.latitude, record.longitude));
-  };
-
-  const deleteParking = (record: ParkingRecord) => {
-    Alert.alert("מחיקת חניה?", "האם למחוק חניה זו?", [
-      { text: STRINGS.cancel, style: "cancel" },
-      {
-        text: STRINGS.delete,
-        style: "destructive",
-        onPress: async () => {
-          try {
-            const { error } = await supabase.from("parkings").delete().eq("id", record.id);
-            if (error) throw error;
-            await load();
-          } catch {
-            Alert.alert("שגיאה", "לא ניתן למחוק.");
-          }
-        },
-      },
-    ]);
-  };
+  }, []);
 
   const renderItem = useCallback(
     ({ item }: { item: ParkingRecord }) => (
-      <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none" style={styles.historyCard}>
-        {/* Far right: thumbnail or fallback */}
-        <View style={styles.historyThumbWrap}>
+      <TouchableOpacity
+        className="flex-row items-center p-4 bg-white dark:bg-slate-800 rounded-2xl mb-3 shadow-sm dark:shadow-none border border-slate-100 dark:border-slate-700"
+        style={{ flexDirection: "row-reverse" }}
+        onPress={() => router.push("/parking/" + item.id)}
+        activeOpacity={0.9}
+      >
+        {/* Right: image thumbnail */}
+        <View className="w-16 h-16 rounded-lg overflow-hidden">
           {item.image_url ? (
             <Image
               source={{ uri: item.image_url }}
-              style={styles.historyThumb}
+              className="w-16 h-16 rounded-lg"
               resizeMode="cover"
             />
           ) : (
-            <View style={styles.historyThumbFallback}>
+            <View className="w-16 h-16 rounded-lg bg-slate-200 dark:bg-slate-700 items-center justify-center">
               <Ionicons name="car-outline" size={28} color={iconColor} />
             </View>
           )}
         </View>
-        {/* Center: date, location, notes (right-aligned) */}
-        <View style={styles.historyContent}>
-          <Text className="text-slate-900 dark:text-white" style={[styles.historyDate, RTL.text]}>
+        {/* Center: date, location, notes (flex-1 mx-4 for proper spacing) */}
+        <View className="flex-1 mx-4 items-end">
+          <Text className="text-slate-900 dark:text-white text-right font-bold" style={[styles.historyDate, RTL.text]}>
             {new Date(item.created_at).toLocaleString("he-IL", {
-              dateStyle: "medium",
-              timeStyle: "short",
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
             })}
           </Text>
           {item.location_name ? (
             <View style={styles.historyLocationRow}>
               <Ionicons name="location-outline" size={14} color={iconColor} />
-              <Text className="text-slate-500 dark:text-slate-400" style={[styles.historyLocation, RTL.text]} numberOfLines={1}>
+              <Text className="text-slate-500 dark:text-slate-400 text-right" style={[styles.historyLocation, RTL.text]} numberOfLines={1}>
                 {item.location_name}
               </Text>
             </View>
           ) : null}
           {item.notes ? (
-            <Text className="text-slate-500 dark:text-slate-400" style={[styles.historyNotes, RTL.text]} numberOfLines={2}>
+            <Text className="text-slate-500 dark:text-slate-400 text-right" style={[styles.historyNotes, RTL.text]} numberOfLines={2}>
               {item.notes}
             </Text>
           ) : null}
         </View>
-        {/* Far left: actions (navigate, edit, delete) */}
-        <View style={styles.historyActions}>
-          <Pressable
-            style={({ pressed }) => [styles.actionIconBtn, pressed && styles.actionIconBtnPressed]}
+        {/* Left: ChevronLeft (clickable indicator) + Navigation icon */}
+        <View className="flex-row items-center gap-4">
+          <ChevronLeft size={20} color="#94a3b8" />
+          <TouchableOpacity
             onPress={() => navigateToCar(item)}
+            hitSlop={8}
+            activeOpacity={0.7}
+            style={styles.actionIconBtn}
           >
             <Ionicons name="navigate" size={24} color={Colors.dark.primary} />
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.actionIconBtn, pressed && styles.actionIconBtnPressed]}
-            onPress={() =>
-              router.push({ pathname: "/(tabs)/add-item", params: { mode: "parking", id: item.id } })
-            }
-          >
-            <Edit3 size={22} color="#3b82f6" />
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.actionIconBtn, pressed && styles.actionIconBtnPressed]}
-            onPress={() => deleteParking(item)}
-          >
-            <Ionicons name="trash-outline" size={24} color="#ef4444" />
-          </Pressable>
+          </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     ),
-    []
+    [iconColor, navigateToCar]
   );
 
   const keyExtractor = useCallback((item: ParkingRecord) => item.id, []);
@@ -256,36 +233,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: "right",
   },
-  historyCard: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-  },
-  historyThumbWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    overflow: "hidden",
-    marginRight: 12,
-  },
-  historyThumb: {
-    width: "100%",
-    height: "100%",
-  },
-  historyThumbFallback: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: Colors.dark.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  historyContent: {
-    flex: 1,
-    alignItems: "flex-end",
-    marginRight: 12,
-  },
   historyDate: {
     fontSize: 15,
     fontWeight: "700",
@@ -295,6 +242,7 @@ const styles = StyleSheet.create({
     flexDirection: "row-reverse",
     alignItems: "center",
     gap: 6,
+    marginTop: 4,
     marginBottom: 2,
   },
   historyLocation: {
@@ -302,15 +250,11 @@ const styles = StyleSheet.create({
   },
   historyNotes: {
     fontSize: 13,
-  },
-  historyActions: {
-    flexDirection: "column",
-    gap: 12,
+    marginTop: 2,
   },
   actionIconBtn: {
     padding: 8,
   },
-  actionIconBtnPressed: { opacity: 0.8 },
   emptyWrap: {
     paddingVertical: 48,
     alignItems: "center",

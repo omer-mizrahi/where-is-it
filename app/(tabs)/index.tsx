@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
+import { ChevronLeft } from "lucide-react-native";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -199,37 +199,54 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </View>
 
-      <Text className="text-slate-900 dark:text-white" style={[styles.sectionTitle, RTL.text]}>{STRINGS.recentActivity}</Text>
-      <View className="bg-white dark:bg-slate-800 shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-700" style={styles.activityList}>
-        {recentItems.length === 0 ? (
-          <View className="bg-white dark:bg-slate-800" style={styles.emptyState}>
-            <Text className="text-slate-500 dark:text-slate-400" style={[styles.emptyText, RTL.text]}>אין פעילות אחרונה</Text>
-          </View>
-        ) : (
-          recentItems.map((item) => (
-            <Pressable
+      <View className="flex-row justify-between items-center mb-4" style={{ flexDirection: "row-reverse" }}>
+        <Text className="text-xl font-bold text-slate-900 dark:text-white" style={RTL.text}>
+          {STRINGS.recentActivity}
+        </Text>
+        <TouchableOpacity onPress={() => router.push("/recent-activity")} hitSlop={12} activeOpacity={0.7}>
+          <Text className="text-blue-600 dark:text-blue-400 font-medium">הצג הכל</Text>
+        </TouchableOpacity>
+      </View>
+      {recentItems.length === 0 ? (
+        <View className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-none border border-slate-100 dark:border-slate-700">
+          <Text className="text-slate-500 dark:text-slate-400 text-center" style={RTL.text}>
+            אין פעילות אחרונה
+          </Text>
+        </View>
+      ) : (
+        recentItems.map((item) => {
+          const formattedDate = new Date(item.created_at).toLocaleString("he-IL", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          });
+          return (
+            <TouchableOpacity
               key={item.id}
-              className="border-b border-slate-200 dark:border-slate-700"
-              style={({ pressed }) => [
-                styles.activityRow,
-                pressed && styles.activityRowPressed,
-              ]}
+              className="flex-row justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-2xl mb-3 shadow-sm dark:shadow-none border border-slate-100 dark:border-slate-700"
               onPress={() => router.push(`/item/${item.id}`)}
+              activeOpacity={0.9}
+              style={{ flexDirection: "row-reverse" }}
             >
-              <View style={[styles.activityRowContent, styles.activityRowRTL]}>
-                <Ionicons name="chevron-back" size={20} color="#64748b" />
-                <View style={styles.activityContent}>
-                  <Text className="text-slate-900 dark:text-white" style={[styles.activityName, RTL.text]}>{item.name}</Text>
-                  <Text className="text-slate-500 dark:text-slate-400" style={[styles.activityMeta, RTL.text]}>
-                    {new Date(item.created_at).toLocaleDateString("he-IL")}
+              <View className="flex-row items-center gap-3" style={{ flexDirection: "row-reverse", flex: 1 }}>
+                <View className="w-3 h-3 rounded-full bg-blue-500" />
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text className="text-lg font-bold text-slate-900 dark:text-white text-right" style={RTL.text}>
+                    {item.name}
+                  </Text>
+                  <Text className="text-sm text-slate-500 dark:text-slate-400 text-right" style={RTL.text}>
+                    {formattedDate}
                   </Text>
                 </View>
-                <View style={styles.activityBullet} />
               </View>
-            </Pressable>
-          ))
-        )}
-      </View>
+              <ChevronLeft size={20} color="#94a3b8" style={{ marginLeft: 12 }} />
+            </TouchableOpacity>
+          );
+        })
+      )}
     </ScrollView>
   );
 }
@@ -283,45 +300,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: 12,
     textAlign: "right",
-  },
-  activityList: {
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  activityRow: {
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-  },
-  activityRowPressed: { backgroundColor: "rgba(255,255,255,0.05)" },
-  activityRowRTL: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    gap: 12,
-  },
-  activityBullet: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.dark.primary,
-  },
-  activityContent: { flex: 1 },
-  activityName: {
-    fontSize: 16,
-    fontWeight: "600",
-    textAlign: "right",
-  },
-  activityMeta: {
-    fontSize: 12,
-    marginTop: 2,
-    textAlign: "right",
-  },
-  emptyState: {
-    borderRadius: 16,
-    padding: 24,
-  },
-  emptyText: {
-    textAlign: "right",
-    fontSize: 15,
   },
 });
