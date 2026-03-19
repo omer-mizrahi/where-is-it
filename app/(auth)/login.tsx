@@ -22,6 +22,11 @@ const SLATE_900 = "#0f172a";
 const BLUE_600 = "#2563eb";
 const SLATE_400 = "#94a3b8";
 
+// פונקציית עזר לניקוי תווים בלתי נראים של RTL/LTR
+const sanitizeEmail = (rawEmail: string) => {
+  return rawEmail.replace(/[\u200E\u200F\u202A-\u202E]/g, '').trim();
+};
+
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,15 +34,16 @@ export default function LoginScreen() {
   const [passwordVisible, setPasswordVisible] = useState(false);
 
   const handleSubmit = async () => {
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) {
+    const cleanEmail = sanitizeEmail(email);
+    
+    if (!cleanEmail || !password) {
       Alert.alert("שגיאה", "נא למלא אימייל וסיסמה");
       return;
     }
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail,
+        email: cleanEmail,
         password,
       });
       if (error) throw error;
@@ -47,6 +53,29 @@ export default function LoginScreen() {
         err && typeof err === "object" && "message" in err
           ? String((err as { message: string }).message)
           : "אימייל או סיסמה שגויים";
+      Alert.alert("שגיאה", message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const cleanEmail = sanitizeEmail(email);
+    
+    if (!cleanEmail) {
+      Alert.alert("שגיאה", "נא להזין את כתובת האימייל שלך למעלה כדי לשחזר סיסמה");
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);
+      if (error) throw error;
+      Alert.alert("נשלח!", "קישור לאיפוס סיסמה נשלח לכתובת האימייל שלך.");
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: string }).message)
+          : "שגיאה בשליחת קישור לאיפוס";
       Alert.alert("שגיאה", message);
     } finally {
       setLoading(false);
@@ -96,7 +125,7 @@ export default function LoginScreen() {
             אימייל
           </Text>
           <TextInput
-            className="rounded-xl text-right text-white p-4 mb-4"
+            className="rounded-xl text-white p-4 mb-4"
             style={{
               backgroundColor: SLATE_800,
               borderRadius: 12,
@@ -104,10 +133,10 @@ export default function LoginScreen() {
               paddingVertical: 16,
               fontSize: 16,
               color: "#fff",
-              textAlign: "right",
-              writingDirection: "rtl",
+              textAlign: "left", // שונה ל-left
+              writingDirection: "ltr", // שונה ל-ltr
             }}
-            placeholder="אימייל"
+            placeholder="email@example.com"
             placeholderTextColor={SLATE_400}
             value={email}
             onChangeText={setEmail}
@@ -128,18 +157,18 @@ export default function LoginScreen() {
             style={{
               backgroundColor: SLATE_800,
               borderRadius: 12,
-              paddingLeft: 12,
-              paddingRight: 16,
+              paddingLeft: 16, // התאמה ל-LTR
+              paddingRight: 12, // התאמה ל-LTR
               paddingVertical: 4,
-              marginBottom: 24,
-              flexDirection: "row",
+              marginBottom: 12,
+              flexDirection: "row-reverse", // הופך את סדר האייקון והטקסט
               alignItems: "center",
             }}
           >
             <Pressable
               onPress={() => setPasswordVisible((v) => !v)}
               hitSlop={12}
-              style={{ padding: 8, marginRight: 4 }}
+              style={{ padding: 8, marginLeft: 4 }}
             >
               <Ionicons
                 name={passwordVisible ? "eye-off-outline" : "eye-outline"}
@@ -154,8 +183,8 @@ export default function LoginScreen() {
                 color: "#fff",
                 paddingVertical: 12,
                 paddingHorizontal: 8,
-                textAlign: "right",
-                writingDirection: "rtl",
+                textAlign: "left", // שונה ל-left
+                writingDirection: "ltr", // שונה ל-ltr
               }}
               placeholder="סיסמה"
               placeholderTextColor={SLATE_400}
@@ -166,11 +195,22 @@ export default function LoginScreen() {
             />
           </View>
 
+          {/* Forgot Password */}
+          <TouchableOpacity
+            onPress={handleForgotPassword}
+            disabled={loading}
+            style={{ width: "100%", marginBottom: 24 }}
+          >
+            <Text style={{ color: BLUE_600, fontWeight: "600", fontSize: 14, textAlign: "right" }}>
+              שכחתי סיסמה?
+            </Text>
+          </TouchableOpacity>
+
           {/* Primary action */}
           <Pressable
             onPress={handleSubmit}
             disabled={loading}
-            className="w-full rounded-2xl p-4 mt-6 flex flex-row items-center justify-center"
+            className="w-full rounded-2xl p-4 mt-2 flex flex-row items-center justify-center"
             style={{
               backgroundColor: BLUE_600,
               paddingVertical: 16,
@@ -207,7 +247,7 @@ export default function LoginScreen() {
               disabled={loading}
             >
               <Text style={{ color: "#3b82f6", fontWeight: "600", fontSize: 16 }}>
-                צור חשבון
+               הרשמה
               </Text>
             </TouchableOpacity>
           </View>
