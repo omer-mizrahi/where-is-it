@@ -11,30 +11,6 @@ import "../global.css";
 I18nManager.allowRTL(true);
 I18nManager.forceRTL(true);
 
-const RTL_DARK_THEME = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    primary: "#3B82F6",
-    background: "#0f172a",
-    card: "#1e293b",
-    border: "transparent",
-    text: "#ffffff",
-  },
-};
-
-const RTL_LIGHT_THEME = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    primary: "#3B82F6",
-    background: "#f8fafc",
-    card: "#ffffff",
-    border: "#e2e8f0",
-    text: "#0f172a",
-  },
-};
-
 export const unstable_settings = {
   initialRouteName: "(tabs)",
 };
@@ -43,22 +19,20 @@ export default function RootLayout() {
   const { colorScheme } = useColorScheme();
 
   return (
-    <ThemeProvider value={colorScheme === "dark" ? RTL_DARK_THEME : RTL_LIGHT_THEME}>
+    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
-          name="recent-activity"
-          options={{
-            headerShown: true,
-            title: "כל הפעילויות",
-            headerBackTitle: "חזור",
-            headerTintColor: "#2563eb",
-          }}
+          name="register"
+          options={{ presentation: "modal", headerShown: false }}
         />
-        <Stack.Screen name="modal" options={{ presentation: "modal" }} />
+        <Stack.Screen
+          name="recent-activity"
+          options={{ title: "כל הפעילויות", headerBackTitle: "חזור" }}
+        />
+        <Stack.Screen name="parking/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="item/[id]" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>
   );
